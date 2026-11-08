@@ -238,14 +238,15 @@ struct ChannelStrip: View {
         let pair = MixerState.pairIndex(of: state.selectedBus)
         let pan = state.mixerPans[channel][pair]
         return VStack(spacing: 1) {
-            Slider(
+            HorizontalSlider(
                 value: Binding(
                     get: { pan },
                     set: { state.userSetMixerPan(channel: channel, pair: pair, pan: $0) }
                 ),
-                in: -1...1
+                range: -1...1,
+                origin: 0,
+                onReset: { state.userSetMixerPan(channel: channel, pair: pair, pan: 0) }
             )
-            .controlSize(.mini)
             .contextMenu {
                 Button("Reset pan to center") {
                     state.userSetMixerPan(channel: channel, pair: pair, pan: 0)
@@ -258,45 +259,37 @@ struct ChannelStrip: View {
     }
 
     /// Pan and width for a stereo pair: pan moves the whole image across the
-    /// mix, width narrows it toward mono.
+    /// mix, width narrows it toward mono.  Words are left off the sliders; the
+    /// ends say what they mean and the value shows while dragging.
     private var stereoImageControls: some View {
         let pair = MixerState.pairIndex(of: state.selectedBus)
         let image = state.stereoPanWidth(leftChannel: channel, pair: pair)
         return VStack(spacing: 0) {
-            imageSlider(
+            StereoImageSlider(
                 value: Binding(
                     get: { image.pan },
                     set: { state.userSetStereoPan(leftChannel: channel, pair: pair, pan: $0) }),
-                range: -1...1, label: "Pan \(panLabel(image.pan))",
-                help: "Pan: moves this stereo pair across the mix. At the far end both channels play on that side.",
+                range: -1...1,
+                origin: 0,
+                readout: panLabel(image.pan),
+                help: "Pan: moves this stereo pair across the mix. At the far end both channels play on that side. Double-click to center.",
+                resetTitle: "Reset pan to center",
                 reset: { state.userSetStereoPan(leftChannel: channel, pair: pair, pan: 0) },
-                resetTitle: "Reset pan to center")
-            imageSlider(
+                leading: { EndCaption("L") },
+                trailing: { EndCaption("R") })
+            StereoImageSlider(
                 value: Binding(
                     get: { image.width },
                     set: { state.userSetStereoWidth(leftChannel: channel, pair: pair, width: $0) }),
-                range: 0...1, label: "Wid \(Int((image.width * 100).rounded()))",
-                help: "Width: 100 is full stereo, 0 is mono. It has no effect with the pair panned fully to one side.",
+                range: 0...1,
+                readout: "\(Int((image.width * 100).rounded()))",
+                help: "Width: narrows this stereo pair toward mono. It has no effect with the pair panned fully to one side. Double-click for 100.",
+                resetTitle: "Reset width to 100",
                 reset: { state.userSetStereoWidth(leftChannel: channel, pair: pair, width: 1) },
-                resetTitle: "Reset width to 100")
+                leading: { DotsIcon(count: 1) },
+                trailing: { DotsIcon(count: 2) })
                 .disabled(abs(image.pan) > 0.999)
         }
-    }
-
-    private func imageSlider(value: Binding<Double>, range: ClosedRange<Double>, label: String,
-                             help: String, reset: @escaping () -> Void, resetTitle: String) -> some View {
-        HStack(spacing: 3) {
-            Slider(value: value, in: range)
-                .controlSize(.mini)
-                .contextMenu { Button(resetTitle, action: reset) }
-            Text(label)
-                .font(.system(size: 8, design: .monospaced))
-                .foregroundStyle(Theme.textSecondary)
-                .lineLimit(1)
-                .frame(width: 44, alignment: .leading)
-        }
-        .frame(height: StripLayout.panRowHeight / 2)
-        .help(help)
     }
 
     private func panLabel(_ pan: Double) -> String {
@@ -345,6 +338,72 @@ struct ChannelStrip: View {
         }
     }
 
+}
+
+/// A slider with a short caption at each end, which swaps to the value while
+/// the slider is being dragged.  The end slots keep their width so the slider
+/// doesn't resize underneath the pointer.
+private struct StereoImageSlider<Leading: View, Trailing: View>: View {
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+    /// Where the track's fill starts: the middle for pan, the left end for width.
+    var origin: Double?
+    let readout: String
+    let help: String
+    let resetTitle: String
+    let reset: () -> Void
+    @ViewBuilder let leading: Leading
+    @ViewBuilder let trailing: Trailing
+    @State private var dragging = false
+
+    private let slotWidth: CGFloat = 20
+
+    var body: some View {
+        HStack(spacing: 3) {
+            leading.frame(width: slotWidth, alignment: .trailing)
+            HorizontalSlider(value: $value, range: range, origin: origin,
+                             onEditingChanged: { dragging = $0 }, onReset: reset)
+                .contextMenu { Button(resetTitle, action: reset) }
+            Group {
+                if dragging {
+                    Text(readout)
+                        .font(.system(size: 8, design: .monospaced))
+                        .foregroundStyle(Theme.textPrimary)
+                } else {
+                    trailing
+                }
+            }
+            .frame(width: slotWidth, alignment: .leading)
+        }
+        .frame(height: StripLayout.panRowHeight / 2)
+        .help(help)
+    }
+}
+
+private struct EndCaption: View {
+    let text: String
+    init(_ text: String) { self.text = text }
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 8, weight: .semibold, design: .monospaced))
+            .foregroundStyle(Theme.textSecondary)
+    }
+}
+
+/// One dot for mono, two overlapping dots for stereo.
+private struct DotsIcon: View {
+    let count: Int
+
+    var body: some View {
+        HStack(spacing: -2) {
+            ForEach(0..<count, id: \.self) { _ in
+                Circle()
+                    .strokeBorder(Theme.textSecondary, lineWidth: 1)
+                    .frame(width: 6, height: 6)
+            }
+        }
+    }
 }
 
 /// Compact Line/Instrument toggle for the combo-input strips (Analog 1, 2).

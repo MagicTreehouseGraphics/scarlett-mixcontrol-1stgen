@@ -103,8 +103,8 @@ struct DbAxis {
 
 /// Vertical fader inspired by Focusrite Control 2's mixer strips, covering
 /// its `axis`.  Drag anywhere along the column (or on the knob) to set the
-/// value.  SwiftUI throttles drag events, so the gesture path doesn't flood
-/// the USB queue.
+/// value; double-click to return to 0 dB.  SwiftUI throttles drag events, so
+/// the gesture path doesn't flood the USB queue.
 struct VerticalFader: View {
     @Binding var db: Double
     var axis: DbAxis = .gain
@@ -169,6 +169,7 @@ struct VerticalFader: View {
                     db = axis.db(atY: drag.location.y, height: height)
                 }
         )
+        .simultaneousGesture(TapGesture(count: 2).onEnded { db = 0 })
     }
 }
 

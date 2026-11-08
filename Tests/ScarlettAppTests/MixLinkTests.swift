@@ -90,6 +90,62 @@ final class MixLinkTests: XCTestCase {
         XCTAssertEqual(s.mixerRightLevels[0][0], 0)
     }
 
+    func testRelinkingOnlyNeedsConfirmingWhenTheMixesDiffer() {
+        let s = makeState()
+        XCTAssertFalse(s.relinkingOverwrites(pair: 0))          // already linked
+        s.userSetMixPairLinked(0, linked: false)
+        XCTAssertFalse(s.relinkingOverwrites(pair: 0))          // identical so far
+        s.userSetMixerLevel(channel: 2, busIdx: 1, level: -5)
+        XCTAssertTrue(s.relinkingOverwrites(pair: 0))
+        s.userSetMixerLevel(channel: 2, busIdx: 0, level: -5)
+        XCTAssertFalse(s.relinkingOverwrites(pair: 0))
+    }
+
+    func testUnlinkingGivesStereoLinkedChannelsOneSharedLevelOnBothMixes() {
+        let s = makeState()
+        s.userToggleLink(channel: 4)
+        s.userSetMixerLevel(channel: 4, busIdx: 0, level: -6)
+        XCTAssertEqual(gains(s, channel: 4, pair: 0).1, MixGain.floorDb)   // hard left
+
+        s.userSetMixPairLinked(0, linked: false)
+
+        for ch in [4, 5] {
+            XCTAssertEqual(s.mixLevel(channel: ch, busIdx: 0), -6)
+            XCTAssertEqual(s.mixLevel(channel: ch, busIdx: 1), -6)
+            XCTAssertEqual(gains(s, channel: ch, pair: 0).0, -6)
+            XCTAssertEqual(gains(s, channel: ch, pair: 0).1, -6)
+        }
+    }
+
+    func testUnlinkingAndRelinkingStereoLinkedChannelsChangesNothing() {
+        let s = makeState()
+        s.userToggleLink(channel: 4)
+        s.userSetMixerLevel(channel: 4, busIdx: 0, level: -6)
+        let before = [gains(s, channel: 4, pair: 0), gains(s, channel: 5, pair: 0)]
+
+        s.userSetMixPairLinked(0, linked: false)
+        XCTAssertFalse(s.relinkingOverwrites(pair: 0))
+        s.userSetMixPairLinked(0, linked: true)
+
+        XCTAssertEqual(s.mixerLevels[4][0], -6)
+        XCTAssertEqual(s.mixerLevels[5][0], -6)
+        XCTAssertEqual(gains(s, channel: 4, pair: 0).0, before[0].0, accuracy: 1e-9)
+        XCTAssertEqual(gains(s, channel: 4, pair: 0).1, before[0].1, accuracy: 1e-9)
+        XCTAssertEqual(gains(s, channel: 5, pair: 0).0, before[1].0, accuracy: 1e-9)
+        XCTAssertEqual(gains(s, channel: 5, pair: 0).1, before[1].1, accuracy: 1e-9)
+    }
+
+    func testRelinkingStereoLinkedChannelsUsesTheLeftMixLevelForBoth() {
+        let s = makeState()
+        s.userToggleLink(channel: 4)
+        s.userSetMixPairLinked(0, linked: false)
+        s.userSetMixerLevel(channel: 4, busIdx: 0, level: -9)   // moves channel 5 too
+        s.userSetMixerLevel(channel: 4, busIdx: 1, level: -2)
+        s.userSetMixPairLinked(0, linked: true)
+        XCTAssertEqual(s.mixerLevels[4][0], -9)
+        XCTAssertEqual(s.mixerLevels[5][0], -9)
+    }
+
     func testRelinkingRestoresHardPanForStereoLinkedChannels() {
         let s = makeState()
         s.userToggleLink(channel: 4)          // channels 4 + 5 become a stereo pair

@@ -1327,31 +1327,69 @@ final class MixerState {
         saveMatrix()
     }
 
+    /// True when linking an unlinked pair would replace levels the right bus
+    /// has now, so the UI can ask first.
+    func relinkingOverwrites(pair: Int) -> Bool {
+        guard (0..<stereoPairCount).contains(pair), !isMixPairLinked(pair) else { return false }
+        return (0..<18).contains { ch in
+            // Stereo-linked channels split to equal levels, so only a mix the
+            // user has since changed is at risk.
+            if linkedPartner(ch) != nil {
+                return abs(mixerLevels[ch][pair] - mixerRightLevels[ch][pair]) > 0.05
+            }
+            let linked = relinkedLevelAndPan(channel: ch, pair: pair)
+            let left = MixGain.cellGain(level: linked.level, pan: linked.pan, isLeft: true)
+            let right = MixGain.cellGain(level: linked.level, pan: linked.pan, isLeft: false)
+            return abs(left - mixerLevels[ch][pair]) > 0.05 || abs(right - mixerRightLevels[ch][pair]) > 0.05
+        }
+    }
+
+    /// What a channel's level and pan become when its unlinked pair is linked.
+    /// The left bus's level wins.  A channel in a stereo link goes back to hard
+    /// L/R at the level the two channels share on the left bus.
+    private func relinkedLevelAndPan(channel ch: Int, pair: Int) -> (level: Double, pan: Double) {
+        guard let partner = linkedPartner(ch) else { return (mixerLevels[ch][pair], 0) }
+        return (max(mixerLevels[ch][pair], mixerLevels[partner][pair]), ch % 2 == 0 ? -1 : 1)
+    }
+
     /// Join the two buses of a mix pair into one stereo mix, or split them
     /// into independent mono mixes.
     ///
     /// Splitting keeps the exact gains the device has now (a channel panned
     /// left becomes M-left at its level and M-right off), so nothing changes
-    /// audibly.  Joining keeps the left bus's levels and overwrites the right
-    /// bus's with them; channels in a stereo link go back to hard L/R and
-    /// the rest to center.
+    /// audibly, except for channels in a stereo link: those get one shared
+    /// level on both mixes, so each mono mix carries the whole stereo source.
+    /// Joining keeps the left bus's levels and overwrites the right
+    /// bus's with them; channels in a stereo link go back to hard L/R at
+    /// their shared level and the rest to center.
     func userSetMixPairLinked(_ pair: Int, linked: Bool) {
         guard (0..<stereoPairCount).contains(pair), linked != isMixPairLinked(pair) else { return }
         if linked {
+            let result = (0..<18).map { relinkedLevelAndPan(channel: $0, pair: pair) }
             unlinkedMixPairs.remove(pair)
             for ch in 0..<18 {
+                mixerLevels[ch][pair] = result[ch].level
+                mixerPans[ch][pair] = result[ch].pan
                 mixerRightLevels[ch][pair] = 0
-                mixerPans[ch][pair] = isLinked(ch) ? (ch % 2 == 0 ? -1 : 1) : 0
                 pushBusPair(channel: ch, pair: pair)
             }
         } else {
-            for ch in 0..<18 {
-                let split = MixGain.unlinkedLevels(level: mixerLevels[ch][pair], pan: mixerPans[ch][pair])
-                mixerLevels[ch][pair] = split.left
-                mixerRightLevels[ch][pair] = split.right
-                mixerPans[ch][pair] = 0
+            let result = (0..<18).map { ch -> (left: Double, right: Double) in
+                // Stereo-linked channels share one level on both mixes, so
+                // each mono mix carries the whole stereo source.
+                if let partner = linkedPartner(ch) {
+                    let shared = max(mixerLevels[ch][pair], mixerLevels[partner][pair])
+                    return (shared, shared)
+                }
+                return MixGain.unlinkedLevels(level: mixerLevels[ch][pair], pan: mixerPans[ch][pair])
             }
             unlinkedMixPairs.insert(pair)
+            for ch in 0..<18 {
+                mixerLevels[ch][pair] = result[ch].left
+                mixerRightLevels[ch][pair] = result[ch].right
+                mixerPans[ch][pair] = 0
+                if linkedPartner(ch) != nil { pushBusPair(channel: ch, pair: pair) }
+            }
         }
         saveMatrix()
         let name = "M\(pair * 2 + 1)+M\(pair * 2 + 2)"

@@ -33,5 +33,10 @@ let package = Package(
             dependencies: ["ScarlettCore"],
             path: "Tests/ScarlettCoreTests"
         ),
+        .testTarget(
+            name: "ScarlettAppTests",
+            dependencies: ["ScarlettApp"],
+            path: "Tests/ScarlettAppTests"
+        ),
     ]
 )

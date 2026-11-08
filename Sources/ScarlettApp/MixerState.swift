@@ -225,6 +225,14 @@ final class MixerState {
     /// One pan position per channel per stereo bus pair. -1 = full left,
     /// 0 = center (no attenuation either side), +1 = full right.
     var mixerPans:   [[Double]] = Array(repeating: Array(repeating: 0, count: 3), count: 18)
+    /// Mix pairs (0 = M1+M2, …) whose two buses are independent mono mixes
+    /// instead of one stereo mix.  Empty = every pair linked, the default
+    /// and what presets from before this existed mean.
+    var unlinkedMixPairs: Set<Int> = []
+    /// The right bus's level per channel for an unlinked pair, where
+    /// `mixerLevels` holds the left bus's.  Pan has no meaning there.  Kept
+    /// at 0 for linked pairs.
+    var mixerRightLevels: [[Double]] = Array(repeating: Array(repeating: 0, count: 3), count: 18)
     /// Per-channel mute — silences the channel's contribution to every
     /// mix bus.  Matches how M behaves on a real mixer / in MixControl.
     var mixerMutes: [Bool] = Array(repeating: false, count: 18)
@@ -262,7 +270,9 @@ final class MixerState {
         }
     }
 
-    init() {
+    /// `autoConnect: false` leaves the state detached from any hardware, for tests.
+    init(autoConnect: Bool = true) {
+        guard autoConnect else { return }
         installCoreAudioListener()
         // Defer USB work so the window can appear before we sync-read the
         // matrix (100+ control transfers when a device is connected).
@@ -495,6 +505,8 @@ final class MixerState {
         if mixerLevels.count != 18 || mixerLevels.first?.count != pairs {
             mixerLevels = Array(repeating: Array(repeating: 0, count: pairs), count: 18)
             mixerPans   = Array(repeating: Array(repeating: 0, count: pairs), count: 18)
+            mixerRightLevels = Array(repeating: Array(repeating: 0, count: pairs), count: 18)
+            unlinkedMixPairs = []
         }
     }
 
@@ -531,6 +543,11 @@ final class MixerState {
             repeating: Array(repeating: 0, count: profile.stereoPairCount),
             count: profile.matrixInputCount
         )
+        mixerRightLevels = Array(
+            repeating: Array(repeating: 0, count: profile.stereoPairCount),
+            count: profile.matrixInputCount
+        )
+        unlinkedMixPairs = []
         mixerMutes = Array(repeating: false, count: profile.matrixInputCount)
         mixerSolos = Array(repeating: false, count: profile.matrixInputCount)
         mixerNames = Array(repeating: "", count: profile.matrixInputCount)
@@ -569,6 +586,23 @@ final class MixerState {
         var sources: [UInt8]        // 18, SignalSource.rawValue per channel
         var names: [String]         // 18
         var linkedLefts: [Int]      // left-channel indices of linked pairs
+        // Added with unlinkable mix pairs; absent in older saves, which means
+        // every pair is linked.
+        var unlinkedMixes: [Int]?
+        var rightLevels: [[Double]]?
+    }
+
+    /// Stored mix-link state, checked against this device's dimensions.  Falls
+    /// back to every pair linked when it's missing or doesn't fit, so a bad
+    /// save can't leave a pair reading levels that don't exist.
+    private func adoptedMixLinkState(unlinked: [Int]?, rightLevels: [[Double]]?,
+                                     rows: Int, pairs: Int) -> (unlinked: Set<Int>, rightLevels: [[Double]]) {
+        let allLinked = (Set<Int>(), Array(repeating: Array(repeating: 0.0, count: pairs), count: rows))
+        guard let unlinked, !unlinked.isEmpty else { return allLinked }
+        guard unlinked.allSatisfy({ (0..<pairs).contains($0) }),
+              let rightLevels, rightLevels.count == rows,
+              rightLevels.allSatisfy({ $0.count == pairs }) else { return allLinked }
+        return (Set(unlinked), rightLevels)
     }
 
     private func loadPersistedState() {
@@ -638,6 +672,8 @@ final class MixerState {
         {
             mixerLevels = m.levels
             mixerPans = m.pans
+            (unlinkedMixPairs, mixerRightLevels) = adoptedMixLinkState(
+                unlinked: m.unlinkedMixes, rightLevels: m.rightLevels, rows: 18, pairs: pairs)
             mixerMutes = m.mutes
             mixerSolos = m.solos
             mixerNames = m.names
@@ -728,7 +764,9 @@ final class MixerState {
             solos: mixerSolos,
             sources: mixerSources.map { $0.rawValue },
             names: mixerNames,
-            linkedLefts: Array(linkedPairs)
+            linkedLefts: Array(linkedPairs),
+            unlinkedMixes: unlinkedMixPairs.isEmpty ? nil : unlinkedMixPairs.sorted(),
+            rightLevels: unlinkedMixPairs.isEmpty ? nil : mixerRightLevels
         )
         if let data = try? JSONEncoder().encode(m) {
             UserDefaults.standard.set(data, forKey: matrixKey(for: profile))
@@ -821,12 +859,17 @@ final class MixerState {
         }
         for ch in 0..<18 {
             for pair in 0..<stereoPairCount {
-                let (level, pan) = Self.deriveLevelAndPan(
-                    left:  snapshotGains[ch][pair * 2],
-                    right: snapshotGains[ch][pair * 2 + 1]
-                )
-                mixerLevels[ch][pair] = level
-                mixerPans[ch][pair] = pan
+                let left = snapshotGains[ch][pair * 2]
+                let right = snapshotGains[ch][pair * 2 + 1]
+                if isMixPairLinked(pair) {
+                    let (level, pan) = MixGain.deriveLevelAndPan(left: left, right: right)
+                    mixerLevels[ch][pair] = level
+                    mixerPans[ch][pair] = pan
+                } else {
+                    mixerLevels[ch][pair] = left.isFinite ? max(MixGain.floorDb, left) : MixGain.floorDb
+                    mixerRightLevels[ch][pair] = right.isFinite ? max(MixGain.floorDb, right) : MixGain.floorDb
+                    mixerPans[ch][pair] = 0
+                }
             }
         }
     }
@@ -1110,7 +1153,7 @@ final class MixerState {
     /// - Solo in bus: any cell soloed in this bus → all non-soloed cells in
     ///   the same bus are silenced.
     /// - Otherwise: derived from `mixerLevels` + `mixerPans` for the bus pair
-    ///   this bus belongs to.
+    ///   this bus belongs to; or, for an unlinked pair, that bus's own level.
     func effectiveGain(channel: Int, busIdx: Int) -> Double {
         // Per-channel mute / solo: a single boolean per channel applies
         // to *every* bus this channel feeds.
@@ -1119,45 +1162,12 @@ final class MixerState {
         if soloActive && !mixerSolos[channel] { return -128 }
         let pair = busIdx / 2
         let isLeft = busIdx % 2 == 0
-        return Self.cellGain(level: mixerLevels[channel][pair],
-                             pan: mixerPans[channel][pair],
-                             isLeft: isLeft)
-    }
-
-    // MARK: - Level + pan math
-
-    /// Convert a (level, pan, side) triple into the per-cell gain that the
-    /// device's matrix mixer will use.  "Amp-style" pan law: at center both
-    /// sides get the full level; panning hard to one side reduces the other
-    /// to -∞ without attenuating the chosen side.
-    static func cellGain(level: Double, pan: Double, isLeft: Bool) -> Double {
-        let clamped = max(-1, min(1, pan))
-        let factor: Double = isLeft
-            ? (clamped <= 0 ? 1.0 : 1.0 - clamped)
-            : (clamped >= 0 ? 1.0 : 1.0 + clamped)
-        if factor <= 0.0001 { return -128 }
-        return level + 20 * log10(factor)
-    }
-
-    /// Inverse of `cellGain` — recover a (level, pan) pair from the device's
-    /// current L and R cell gains.  Used to migrate the matrix on launch.
-    static func deriveLevelAndPan(left: Double, right: Double) -> (level: Double, pan: Double) {
-        let safeL = left.isFinite  ? max(-128, left)  : -128
-        let safeR = right.isFinite ? max(-128, right) : -128
-        if abs(safeL - safeR) < 0.5 {
-            return (max(safeL, safeR), 0)
+        if !isMixPairLinked(pair) {
+            return isLeft ? mixerLevels[channel][pair] : mixerRightLevels[channel][pair]
         }
-        if safeL > safeR {
-            let level = safeL
-            // pan in [-1, 0]: gain_R = level + 20·log10(1 + pan)
-            let pan = pow(10, (safeR - level) / 20) - 1
-            return (level, max(-1, pan))
-        } else {
-            let level = safeR
-            // pan in (0, 1]: gain_L = level + 20·log10(1 - pan)
-            let pan = 1 - pow(10, (safeL - level) / 20)
-            return (level, min(1, pan))
-        }
+        return MixGain.cellGain(level: mixerLevels[channel][pair],
+                                pan: mixerPans[channel][pair],
+                                isLeft: isLeft)
     }
 
     // Kept as static thunks for source compatibility with existing callers —
@@ -1226,7 +1236,7 @@ final class MixerState {
         assignPinnedSource(channel: l, source: .daw1)
         assignPinnedSource(channel: r, source: .daw2)
 
-        for pair in 0..<stereoPairCount {
+        for pair in 0..<stereoPairCount where isMixPairLinked(pair) {
             if mixerPans[l][pair] != -1 { userSetMixerPan(channel: l, pair: pair, pan: -1) }
             if mixerPans[r][pair] !=  1 { userSetMixerPan(channel: r, pair: pair, pan:  1) }
         }
@@ -1279,7 +1289,7 @@ final class MixerState {
         } else {
             linkedPairs.remove(left)
         }
-        for pair in 0..<stereoPairCount {
+        for pair in 0..<stereoPairCount where isMixPairLinked(pair) {
             mixerPans[left][pair]     = linking ? -1 : 0
             mixerPans[left + 1][pair] = linking ?  1 : 0
             pushBusPair(channel: left, pair: pair)
@@ -1288,25 +1298,72 @@ final class MixerState {
         saveMatrix()
     }
 
-    /// Set the channel-level fader for one stereo bus pair. Pushes both cells
-    /// (L and R) in that pair to the device.  If the channel is in a linked
-    /// stereo pair, the partner's level for the same pair moves with it.
-    func userSetMixerLevel(channel: Int, pair: Int, level: Double) {
-        guard (0..<18).contains(channel), (0..<stereoPairCount).contains(pair) else { return }
-        mixerLevels[channel][pair] = level
-        pushBusPair(channel: channel, pair: pair)
-        if let partner = linkedPartner(channel) {
-            mixerLevels[partner][pair] = level
-            pushBusPair(channel: partner, pair: pair)
+    func isMixPairLinked(_ pair: Int) -> Bool { !unlinkedMixPairs.contains(pair) }
+
+    /// The fader value to show for a channel on one mix bus.  In a linked
+    /// pair both buses read the pair's level; unlinked, each has its own.
+    func mixLevel(channel: Int, busIdx: Int) -> Double {
+        let pair = busIdx / 2
+        if isMixPairLinked(pair) || busIdx % 2 == 0 { return mixerLevels[channel][pair] }
+        return mixerRightLevels[channel][pair]
+    }
+
+    /// Set a channel's fader on one mix bus.  In a linked pair that sets the
+    /// pair's level and pushes both of its cells; in an unlinked pair only
+    /// this bus changes.  If the channel is in a linked stereo pair, the
+    /// partner's level for the same bus moves with it.
+    func userSetMixerLevel(channel: Int, busIdx: Int, level: Double) {
+        guard (0..<18).contains(channel), (0..<profile.mixBusCount).contains(busIdx) else { return }
+        let pair = busIdx / 2
+        for ch in [channel] + (linkedPartner(channel).map { [$0] } ?? []) {
+            if isMixPairLinked(pair) {
+                mixerLevels[ch][pair] = level
+                pushBusPair(channel: ch, pair: pair)
+            } else {
+                if busIdx % 2 == 0 { mixerLevels[ch][pair] = level } else { mixerRightLevels[ch][pair] = level }
+                pushCellGain(channel: ch, bus: matrixBuses[busIdx])
+            }
         }
         saveMatrix()
+    }
+
+    /// Join the two buses of a mix pair into one stereo mix, or split them
+    /// into independent mono mixes.
+    ///
+    /// Splitting keeps the exact gains the device has now (a channel panned
+    /// left becomes M-left at its level and M-right off), so nothing changes
+    /// audibly.  Joining keeps the left bus's levels and overwrites the right
+    /// bus's with them; channels in a stereo link go back to hard L/R and
+    /// the rest to center.
+    func userSetMixPairLinked(_ pair: Int, linked: Bool) {
+        guard (0..<stereoPairCount).contains(pair), linked != isMixPairLinked(pair) else { return }
+        if linked {
+            unlinkedMixPairs.remove(pair)
+            for ch in 0..<18 {
+                mixerRightLevels[ch][pair] = 0
+                mixerPans[ch][pair] = isLinked(ch) ? (ch % 2 == 0 ? -1 : 1) : 0
+                pushBusPair(channel: ch, pair: pair)
+            }
+        } else {
+            for ch in 0..<18 {
+                let split = MixGain.unlinkedLevels(level: mixerLevels[ch][pair], pan: mixerPans[ch][pair])
+                mixerLevels[ch][pair] = split.left
+                mixerRightLevels[ch][pair] = split.right
+                mixerPans[ch][pair] = 0
+            }
+            unlinkedMixPairs.insert(pair)
+        }
+        saveMatrix()
+        let name = "M\(pair * 2 + 1)+M\(pair * 2 + 2)"
+        logEvent(.info, "Mix", linked ? "Linked \(name) as one stereo mix" : "Unlinked \(name) into two mono mixes")
     }
 
     /// Set the L↔R pan for one stereo bus pair on one channel. Snaps to
     /// center when within ±0.04.  A linked partner mirrors the pan, so the
     /// pair's width stays symmetric.
     func userSetMixerPan(channel: Int, pair: Int, pan: Double) {
-        guard (0..<18).contains(channel), (0..<stereoPairCount).contains(pair) else { return }
+        guard (0..<18).contains(channel), (0..<stereoPairCount).contains(pair),
+              isMixPairLinked(pair) else { return }
         let snapped = abs(pan) < 0.04 ? 0 : max(-1, min(1, pan))
         mixerPans[channel][pair] = snapped
         pushBusPair(channel: channel, pair: pair)
@@ -1444,6 +1501,14 @@ final class MixerState {
               preset.mixerPans.allSatisfy({ $0.count == pairs }) else {
             throw ScarlettPresetError.invalid("matrix dimensions do not match \(profile.displayName)")
         }
+        if let unlinked = preset.unlinkedMixes, !unlinked.isEmpty {
+            guard unlinked.allSatisfy({ (0..<pairs).contains($0) }),
+                  let right = preset.mixerRightLevels,
+                  right.count == rows,
+                  right.allSatisfy({ $0.count == pairs }) else {
+                throw ScarlettPresetError.invalid("unlinked mix data does not match \(profile.displayName)")
+            }
+        }
         guard preset.mixerMutes.count == rows,
               preset.mixerSolos.count == rows,
               preset.mixerNames.count == rows else {
@@ -1527,6 +1592,9 @@ final class MixerState {
         if preset.mixerPans.count == 18, preset.mixerPans.allSatisfy({ $0.count == stereoPairCount }) {
             mixerPans = preset.mixerPans
         }
+        (unlinkedMixPairs, mixerRightLevels) = adoptedMixLinkState(
+            unlinked: preset.unlinkedMixes, rightLevels: preset.mixerRightLevels,
+            rows: 18, pairs: stereoPairCount)
         if preset.mixerNames.count == 18 { mixerNames = preset.mixerNames }
         linkedPairs = Set(preset.linkedLefts)
 
@@ -1565,7 +1633,9 @@ final class MixerState {
             mixerMutes: mixerMutes,
             mixerSolos: mixerSolos,
             mixerNames: mixerNames,
-            linkedLefts: linkedPairs.sorted()
+            linkedLefts: linkedPairs.sorted(),
+            unlinkedMixes: unlinkedMixPairs.isEmpty ? nil : unlinkedMixPairs.sorted(),
+            mixerRightLevels: unlinkedMixPairs.isEmpty ? nil : mixerRightLevels
         )
     }
 
@@ -1650,7 +1720,9 @@ final class MixerState {
             mixerSolos: mixerSolos,
             mixerNames: mixerNames,
             linkedLefts: Array(linkedPairs),
-            selectedBus: UInt8(selectedBus.matrixIndex ?? 0)
+            selectedBus: UInt8(selectedBus.matrixIndex ?? 0),
+            unlinkedMixes: unlinkedMixPairs.isEmpty ? nil : unlinkedMixPairs.sorted(),
+            mixerRightLevels: unlinkedMixPairs.isEmpty ? nil : mixerRightLevels
         )
     }
 
@@ -1727,6 +1799,8 @@ final class MixerState {
 
         mixerLevels = Array(repeating: Array(repeating: 0, count: stereoPairCount), count: 18)
         mixerPans   = Array(repeating: Array(repeating: 0, count: stereoPairCount), count: 18)
+        mixerRightLevels = Array(repeating: Array(repeating: 0, count: stereoPairCount), count: 18)
+        unlinkedMixPairs = []
         mixerMutes  = Array(repeating: false, count: 18)
         mixerSolos  = Array(repeating: false, count: 18)
         linkedPairs = []
@@ -1864,10 +1938,10 @@ final class MixerState {
 
     // MARK: - Copy mix to another bus
 
-    /// Replicate the per-channel settings from one mix bus to another:
-    /// for every matrix channel, copy that channel's level/pan/mute/solo for
-    /// the source pair to the destination pair (and the cell-gains for the
-    /// source bus to the destination bus).  Useful for "make M3+M4 = M1+M2".
+    /// Replicate the per-channel settings from one mix pair to another:
+    /// for every matrix channel, copy that channel's levels and pan, and
+    /// whether the pair is linked, to the destination pair.  Useful for
+    /// "make M3+M4 = M1+M2".
     ///
     /// `from` and `to` are the bus's stereo pair (0 = M1+M2, 1 = M3+M4,
     /// 2 = M5+M6).  This works at the *pair* granularity because levels and
@@ -1879,9 +1953,15 @@ final class MixerState {
               (0..<stereoPairCount).contains(destPair) else { return }
         // Mute and solo are now channel-wide, so copying a pair only
         // copies the per-pair level + pan into the destination.
+        if isMixPairLinked(sourcePair) {
+            unlinkedMixPairs.remove(destPair)
+        } else {
+            unlinkedMixPairs.insert(destPair)
+        }
         for ch in 0..<18 {
             mixerLevels[ch][destPair] = mixerLevels[ch][sourcePair]
             mixerPans[ch][destPair]   = mixerPans[ch][sourcePair]
+            mixerRightLevels[ch][destPair] = mixerRightLevels[ch][sourcePair]
             pushBusPair(channel: ch, pair: destPair)
         }
         saveMatrix()

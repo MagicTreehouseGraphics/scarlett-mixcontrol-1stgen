@@ -22,8 +22,12 @@ struct ChannelStrip: View {
             header(source: source)
             inputSwitch(source: source)
                 .frame(height: StripLayout.switchRowHeight)
+            // Pan only exists for a linked (stereo) mix pair; the row stays
+            // so the faders don't shift between tabs.
             panSlider
                 .frame(height: StripLayout.panRowHeight)
+                .opacity(panApplies ? 1 : 0)
+                .allowsHitTesting(panApplies)
             fader
                 .frame(height: faderHeight)
             peakReadout
@@ -149,19 +153,19 @@ struct ChannelStrip: View {
     // MARK: - Fader column
 
     private var fader: some View {
-        let pair = MixerState.pairIndex(of: state.selectedBus)
-        let level = state.mixerLevels[channel][pair]
+        let busIdx = state.selectedBus.matrixIndex ?? 0
+        let level = state.mixLevel(channel: channel, busIdx: busIdx)
         let source = state.mixerSources[channel]
 
         return HStack(alignment: .center, spacing: 4) {
             VerticalFader(db: Binding(
                 get: { level },
-                set: { state.userSetMixerLevel(channel: channel, pair: pair, level: $0) }
+                set: { state.userSetMixerLevel(channel: channel, busIdx: busIdx, level: $0) }
             ))
             .opacity(state.mixerMutes[channel] ? 0.4 : 1.0)
             .contextMenu {
                 Button("Reset fader to 0 dB") {
-                    state.userSetMixerLevel(channel: channel, pair: pair, level: 0)
+                    state.userSetMixerLevel(channel: channel, busIdx: busIdx, level: 0)
                 }
             }
 
@@ -173,6 +177,10 @@ struct ChannelStrip: View {
             DbScale()
         }
         .frame(height: faderHeight)
+    }
+
+    private var panApplies: Bool {
+        state.isMixPairLinked(MixerState.pairIndex(of: state.selectedBus))
     }
 
     private var panSlider: some View {
@@ -206,10 +214,10 @@ struct ChannelStrip: View {
 
     private var peakReadout: some View {
         let source = state.mixerSources[channel]
-        let pair = MixerState.pairIndex(of: state.selectedBus)
+        let busIdx = state.selectedBus.matrixIndex ?? 0
         return StripReadout(
             state: state,
-            faderDb: state.mixerLevels[channel][pair],
+            faderDb: state.mixLevel(channel: channel, busIdx: busIdx),
             faderMuted: state.mixerMutes[channel],
             maxPeak: { StripMeter.level(from: $0.peaksMax, source: source, profile: $0.profile) },
             resetHelp: "Click to reset this channel's max peak"

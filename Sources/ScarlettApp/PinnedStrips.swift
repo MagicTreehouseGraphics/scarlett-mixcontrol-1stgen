@@ -59,19 +59,19 @@ struct PinnedDawStrip: View {
     }
 
     private var fader: some View {
-        let pair = MixerState.pairIndex(of: state.selectedBus)
-        let level = state.mixerLevels[leftCh][pair]
+        let busIdx = state.selectedBus.matrixIndex ?? 0
+        let level = state.mixLevel(channel: leftCh, busIdx: busIdx)
         let isMuted = state.mixerMutes[leftCh]
 
         return HStack(alignment: .center, spacing: 4) {
             VerticalFader(db: Binding(
                 get: { level },
-                set: { state.userSetMixerLevel(channel: leftCh, pair: pair, level: $0) }
+                set: { state.userSetMixerLevel(channel: leftCh, busIdx: busIdx, level: $0) }
             ))
             .opacity(isMuted ? 0.4 : 1.0)
             .contextMenu {
                 Button("Reset fader to 0 dB") {
-                    state.userSetMixerLevel(channel: leftCh, pair: pair, level: 0)
+                    state.userSetMixerLevel(channel: leftCh, busIdx: busIdx, level: 0)
                 }
             }
 
@@ -88,10 +88,10 @@ struct PinnedDawStrip: View {
     }
 
     private var peakReadout: some View {
-        let pair = MixerState.pairIndex(of: state.selectedBus)
+        let busIdx = state.selectedBus.matrixIndex ?? 0
         return StripReadout(
             state: state,
-            faderDb: state.mixerLevels[leftCh][pair],
+            faderDb: state.mixLevel(channel: leftCh, busIdx: busIdx),
             faderMuted: state.mixerMutes[leftCh],
             maxPeak: { s in
                 max(StripMeter.level(from: s.peaksMax, source: .daw1, profile: s.profile),

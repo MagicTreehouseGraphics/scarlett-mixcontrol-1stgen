@@ -40,6 +40,13 @@ public struct ScarlettPreset: Codable, Identifiable, Hashable {
 
     /// Matrix index of the bus that was active when the snapshot was taken.
     public var selectedBus: UInt8
+
+    /// Mix pairs split into independent mono mixes, and those mixes' right-bus
+    /// levels (18 × pair count; the left bus's are in `mixerLevels`).  Absent
+    /// in presets saved before pairs could be unlinked, which means every pair
+    /// is linked.
+    public var unlinkedMixes: [Int]?
+    public var mixerRightLevels: [[Double]]?
 }
 
 /// The part of the state a preset sets — what "modified since loading"
@@ -55,6 +62,9 @@ struct PresetContent: Codable, Equatable {
     var mixerNames: [String]
     /// Sorted, so equal sets compare equal.
     var linkedLefts: [Int]
+    /// nil while every mix pair is linked, so older baselines still match.
+    var unlinkedMixes: [Int]?
+    var mixerRightLevels: [[Double]]?
 }
 
 /// What the user last loaded, and the state right after loading it.  The

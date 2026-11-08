@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import ScarlettCore
 
 enum AppInfo {
@@ -140,5 +141,26 @@ extension SignalSource {
         case .off:
             return Theme.accentOther
         }
+    }
+}
+
+extension Color {
+    /// A colour from "#RRGGBB"; nil for anything else, including "".
+    init?(hex: String) {
+        guard hex.count == 7, hex.first == "#", let value = UInt32(hex.dropFirst(), radix: 16) else { return nil }
+        self.init(.sRGB,
+                  red: Double((value >> 16) & 0xff) / 255,
+                  green: Double((value >> 8) & 0xff) / 255,
+                  blue: Double(value & 0xff) / 255,
+                  opacity: 1)
+    }
+
+    /// "#RRGGBB" in sRGB.
+    var hexString: String? {
+        guard let c = NSColor(self).usingColorSpace(.sRGB) else { return nil }
+        return String(format: "#%02X%02X%02X",
+                      Int((c.redComponent * 255).rounded()),
+                      Int((c.greenComponent * 255).rounded()),
+                      Int((c.blueComponent * 255).rounded()))
     }
 }

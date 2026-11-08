@@ -16,6 +16,9 @@ struct MatrixMixerView: View {
     /// The pair the user asked to relink while its two mixes still differ;
     /// held until they confirm that M-right will be overwritten.
     @State private var pendingRelink: Int?
+    /// The mix tab (see `MixerState.mixTabKey`) whose name and colour are
+    /// being edited in a popover.
+    @State private var customizing: Int?
     private var visibleChannels: Range<Int> {
         let physicalInputs = state.profile.sources.filter {
             $0.category == .analog || $0.category == .digital
@@ -58,21 +61,33 @@ struct MatrixMixerView: View {
 
     private let tabHeight: CGFloat = 32
 
+    private func tabKey(_ bus: MixBus) -> Int { state.mixTabKey(forBus: bus.matrixIndex ?? 0) }
+    private func tabColor(_ key: Int) -> Color? { Color(hex: state.mixColorHex(forTab: key)) }
+
     /// The tab or tabs of one mix pair.  Linked, M-left, the link and M-right
     /// are one wide tab; unlinked, they are two tabs with the link between.
     @ViewBuilder
     private func mixPairTabs(_ pair: Int) -> some View {
         let left = state.matrixBuses[pair * 2]
         let right = state.matrixBuses[pair * 2 + 1]
+        let pairName = "M\(pair * 2 + 1)+M\(pair * 2 + 2)"
         Group {
             if state.isMixPairLinked(pair) {
                 let selected = state.selectedBus == left || state.selectedBus == right
-                mixTab(selected: selected) {
+                let name = state.mixName(forTab: pair * 2)
+                mixTab(selected: selected, key: pair * 2, title: pairName,
+                       placeholder: "Mix \(pairName)") {
                     HStack(spacing: 0) {
-                        tabLabel(left, selected: selected)
-                        mixLinkButton(pair: pair, linked: true)
-                            .padding(.horizontal, 6)
-                        tabLabel(right, selected: selected)
+                        if name.isEmpty {
+                            tabLabel(left, selected: selected)
+                            mixLinkButton(pair: pair, linked: true)
+                                .padding(.horizontal, 6)
+                            tabLabel(right, selected: selected)
+                        } else {
+                            namedLabel(name, caption: pairName, bus: left, selected: selected, width: 126)
+                            mixLinkButton(pair: pair, linked: true)
+                                .padding(.horizontal, 6)
+                        }
                         copyArrow(for: right, selected: selected)
                     }
                 }
@@ -90,26 +105,44 @@ struct MatrixMixerView: View {
 
     private func monoTab(_ bus: MixBus) -> some View {
         let selected = state.selectedBus == bus
-        return mixTab(selected: selected) {
+        let key = tabKey(bus)
+        let name = state.mixName(forTab: key)
+        return mixTab(selected: selected, key: key, title: "M\(key + 1)", placeholder: bus.displayName) {
             HStack(spacing: 0) {
-                tabLabel(bus, selected: selected)
+                if name.isEmpty {
+                    tabLabel(bus, selected: selected)
+                } else {
+                    namedLabel(name, caption: "M\(key + 1)", bus: bus, selected: selected, width: 84)
+                }
                 copyArrow(for: bus, selected: selected)
             }
         }
     }
 
-    /// A folder tab around `content`.  Selected, it has the panel's fill and a
-    /// blue outline that opens into the panel's border; otherwise it is a
-    /// plain block resting on the panel's top edge.
-    private func mixTab<Content: View>(selected: Bool, @ViewBuilder content: () -> Content) -> some View {
+    /// A folder tab around `content`.  Selected, it has the panel's fill and an
+    /// outline that opens into the panel's border; otherwise it is a plain
+    /// block resting on the panel's top edge.  A colour the user gave the mix
+    /// tints the outline and marks the tab with a stripe.  Double-clicking the
+    /// label, or the menu's "Name & color…", opens the editor.
+    private func mixTab<Content: View>(selected: Bool, key: Int, title: String, placeholder: String,
+                                       @ViewBuilder content: () -> Content) -> some View {
         let lineWidth: CGFloat = 1.5
+        let accent = tabColor(key)
         return content()
             .frame(height: tabHeight)
             .background(FolderTabShape().fill(selected ? Theme.tabPanel : Theme.panelRaised))
             .overlay {
+                if let accent {
+                    Rectangle().fill(accent)
+                        .frame(height: 3)
+                        .frame(maxHeight: .infinity, alignment: .top)
+                        .mask(FolderTabShape())
+                }
+            }
+            .overlay {
                 if selected {
                     FolderTabShape(inset: lineWidth / 2, overhang: lineWidth)
-                        .stroke(Theme.tabOutline, lineWidth: lineWidth)
+                        .stroke(accent ?? Theme.tabOutline, lineWidth: lineWidth)
                 }
             }
             .overlay(alignment: .bottom) {
@@ -123,6 +156,17 @@ struct MatrixMixerView: View {
                 }
             }
             .zIndex(selected ? 1 : 0)
+            .popover(isPresented: Binding(
+                get: { customizing == key },
+                set: { if !$0, customizing == key { customizing = nil } }
+            ), arrowEdge: .bottom) {
+                MixAppearanceEditor(
+                    title: title, placeholder: placeholder,
+                    name: state.mixName(forTab: key), colorHex: state.mixColorHex(forTab: key)
+                ) { name, hex in
+                    state.userSetMixAppearance(tab: key, name: name, colorHex: hex)
+                }
+            }
     }
 
     private func tabLabel(_ bus: MixBus, selected: Bool) -> some View {
@@ -136,6 +180,32 @@ struct MatrixMixerView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .simultaneousGesture(TapGesture(count: 2).onEnded { customizing = tabKey(bus) })
+        .contextMenu { copyMixMenuItems(for: bus) }
+    }
+
+    /// A tab label with the user's name, and which mixes it is beneath.
+    private func namedLabel(_ name: String, caption: String, bus: MixBus, selected: Bool,
+                            width: CGFloat) -> some View {
+        Button {
+            state.selectedBus = bus
+        } label: {
+            VStack(spacing: 0) {
+                Text(name)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(selected ? Theme.textPrimary : Theme.textSecondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Text(caption)
+                    .font(.system(size: 8, design: .monospaced))
+                    .foregroundStyle(Theme.textSecondary)
+            }
+            .padding(.horizontal, 6)
+            .frame(width: width, height: tabHeight)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .simultaneousGesture(TapGesture(count: 2).onEnded { customizing = tabKey(bus) })
         .contextMenu { copyMixMenuItems(for: bus) }
     }
 
@@ -285,6 +355,8 @@ struct MatrixMixerView: View {
         let busIdx = bus.matrixIndex ?? 0
         let pair = busIdx / 2
         let pairLabel: (Int) -> String = { "M\($0 * 2 + 1)+M\($0 * 2 + 2)" }
+        Button("Name & color…") { customizing = state.mixTabKey(forBus: busIdx) }
+        Divider()
         if state.isMixPairLinked(pair) {
             Section("Copy \(pairLabel(pair)) to") {
                 ForEach(state.pairCopyTargets(fromPair: pair), id: \.self) { dest in
@@ -331,6 +403,7 @@ struct MatrixMixerView: View {
     private var mixPanel: some View {
         let shape = UnevenRoundedRectangle(topLeadingRadius: 0, bottomLeadingRadius: 6,
                                            bottomTrailingRadius: 6, topTrailingRadius: 6)
+        let outline = tabColor(tabKey(state.selectedBus)) ?? Theme.tabOutline
         return HStack(alignment: .top, spacing: 6) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
@@ -340,6 +413,7 @@ struct MatrixMixerView: View {
                     }
                 }
                 .padding(.vertical, StripLayout.pinnedOutset)
+                .background(SidewaysScrollWheel())
             }
             if state.hasPinnedDawReturn {
                 PinnedDawStrip(state: state)
@@ -347,6 +421,6 @@ struct MatrixMixerView: View {
         }
         .padding(10)
         .background { shape.fill(Theme.tabPanel) }
-        .overlay { shape.strokeBorder(Theme.tabOutline, lineWidth: 1.5) }
+        .overlay { shape.strokeBorder(outline, lineWidth: 1.5) }
     }
 }

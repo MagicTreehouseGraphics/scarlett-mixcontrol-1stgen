@@ -34,6 +34,36 @@ enum StereoSourceChoice: Hashable, Identifiable {
     }
 }
 
+/// A name and a colour the user gave each mix tab, to tell them apart.
+struct MixAppearance: Codable, Equatable {
+    /// Per mix bus; "" keeps the default "Mix M1".
+    var names: [String]
+    /// Per mix bus as "#RRGGBB"; "" keeps the default.
+    var colors: [String]
+
+    static let maxNameLength = 24
+
+    /// `#RRGGBB` (any case, normalised to upper), or "" for anything else.
+    static func validColor(_ hex: String) -> String {
+        guard hex.count == 7, hex.first == "#",
+              hex.dropFirst().allSatisfy(\.isHexDigit) else { return "" }
+        return hex.uppercased()
+    }
+
+    static func cleanName(_ name: String) -> String {
+        String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(maxNameLength))
+    }
+
+    /// Saved data fitted to `count` mixes, with bad entries reset to default.
+    static func adopted(_ saved: MixAppearance?, count: Int) -> MixAppearance {
+        var names = (saved?.names ?? []).map(cleanName)
+        var colors = (saved?.colors ?? []).map(validColor)
+        names = Array((names + Array(repeating: "", count: count)).prefix(count))
+        colors = Array((colors + Array(repeating: "", count: count)).prefix(count))
+        return MixAppearance(names: names, colors: colors)
+    }
+}
+
 // View model holding the live device handle, the latest peak meter reading,
 // and the user's current slider/toggle positions. Writes to the device are
 // only sent when the user changes a value — the model never tries to
@@ -252,6 +282,10 @@ final class MixerState {
     /// `mixerLevels` holds the left bus's.  Pan has no meaning there.  Kept
     /// at 0 for linked pairs.
     var mixerRightLevels: [[Double]] = Array(repeating: Array(repeating: 0, count: 3), count: 18)
+    /// Custom name and colour per mix tab.  Kept per bus, but a linked pair is
+    /// one tab and uses its left bus's (see `mixTabKey`).
+    var mixNames: [String] = Array(repeating: "", count: 8)
+    var mixColors: [String] = Array(repeating: "", count: 8)
     /// Per-channel mute — silences the channel's contribution to every
     /// mix bus.  Matches how M behaves on a real mixer / in MixControl.
     var mixerMutes: [Bool] = Array(repeating: false, count: 18)
@@ -490,6 +524,7 @@ final class MixerState {
     private static let visibleOutputsKeyPrefix  = "scarlett.visibleOutputs.v1"
     private static let menuBarOutputsKeyPrefix  = "scarlett.menuBarOutputs.v1"
     private static let loadedPresetKeyPrefix    = "scarlett.loadedPreset.v1"
+    private static let mixAppearanceKeyPrefix   = "scarlett.mixAppearance.v1"
 
     private func routesKey(for profile: DeviceProfile) -> String {
         "\(Self.routesKeyPrefix).\(profile.productID)"
@@ -517,6 +552,9 @@ final class MixerState {
     }
     private func loadedPresetKey(for profile: DeviceProfile) -> String {
         "\(Self.loadedPresetKeyPrefix).\(profile.productID)"
+    }
+    private func mixAppearanceKey(for profile: DeviceProfile) -> String {
+        "\(Self.mixAppearanceKeyPrefix).\(profile.productID)"
     }
 
     private func ensureMatrixSizing(for profile: DeviceProfile) {
@@ -553,6 +591,8 @@ final class MixerState {
         menuBarPairLabels = Self.menuBarEligibleLabels(for: profile)
         loadedPreset = nil
 
+        mixNames = Array(repeating: "", count: profile.mixBusCount)
+        mixColors = Array(repeating: "", count: profile.mixBusCount)
         mixerSources = Array(repeating: .off, count: profile.matrixInputCount)
         mixerLevels = Array(
             repeating: Array(repeating: 0, count: profile.stereoPairCount),
@@ -711,6 +751,13 @@ final class MixerState {
                     }
                 }
             }
+        }
+
+        if let data = defaults.data(forKey: mixAppearanceKey(for: profile)),
+           let saved = try? JSONDecoder().decode(MixAppearance.self, from: data) {
+            let adopted = MixAppearance.adopted(saved, count: profile.mixBusCount)
+            mixNames = adopted.names
+            mixColors = adopted.colors
         }
 
         if let data = defaults.data(forKey: Self.presetsKey),
@@ -2115,6 +2162,32 @@ final class MixerState {
         let srcName = "Mix M\(sourcePair*2 + 1)+M\(sourcePair*2 + 2)"
         let dstName = "Mix M\(destPair*2 + 1)+M\(destPair*2 + 2)"
         logEvent(.info, "Copy", "Copied \(srcName) → \(dstName)")
+    }
+
+    // MARK: - Mix tab names and colours
+
+    /// Which mix a tab stands for: a linked pair is one tab, keyed by its left bus.
+    func mixTabKey(forBus bus: Int) -> Int {
+        isMixPairLinked(bus / 2) ? (bus / 2) * 2 : bus
+    }
+
+    /// The custom name of a mix tab, or "" for the default.
+    func mixName(forTab key: Int) -> String {
+        mixNames.indices.contains(key) ? mixNames[key] : ""
+    }
+
+    /// The custom colour of a mix tab as "#RRGGBB", or "" for the default.
+    func mixColorHex(forTab key: Int) -> String {
+        mixColors.indices.contains(key) ? mixColors[key] : ""
+    }
+
+    func userSetMixAppearance(tab key: Int, name: String, colorHex: String) {
+        guard mixNames.indices.contains(key), mixColors.indices.contains(key) else { return }
+        mixNames[key] = MixAppearance.cleanName(name)
+        mixColors[key] = MixAppearance.validColor(colorHex)
+        if let data = try? JSONEncoder().encode(MixAppearance(names: mixNames, colors: mixColors)) {
+            UserDefaults.standard.set(data, forKey: mixAppearanceKey(for: profile))
+        }
     }
 
     /// Pairs a linked (stereo) pair can be copied to: every other pair, which

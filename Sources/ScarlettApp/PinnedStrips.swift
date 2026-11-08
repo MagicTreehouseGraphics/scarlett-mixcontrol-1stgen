@@ -61,7 +61,7 @@ struct PinnedDawStrip: View {
     private var fader: some View {
         let busIdx = state.selectedBus.matrixIndex ?? 0
         let level = state.mixLevel(channel: leftCh, busIdx: busIdx)
-        let isMuted = state.mixerMutes[leftCh]
+        let isMuted = state.isMuted(channel: leftCh, busIdx: busIdx)
 
         return HStack(alignment: .center, spacing: 4) {
             VerticalFader(db: Binding(
@@ -92,7 +92,7 @@ struct PinnedDawStrip: View {
         return StripReadout(
             state: state,
             faderDb: state.mixLevel(channel: leftCh, busIdx: busIdx),
-            faderMuted: state.mixerMutes[leftCh],
+            faderMuted: state.isMuted(channel: leftCh, busIdx: busIdx),
             maxPeak: { s in
                 max(StripMeter.level(from: s.peaksMax, source: .daw1, profile: s.profile),
                     StripMeter.level(from: s.peaksMax, source: .daw2, profile: s.profile))
@@ -106,13 +106,14 @@ struct PinnedDawStrip: View {
     }
 
     private var controls: some View {
-        let isMuted = state.mixerMutes[leftCh]
+        let busIdx = state.selectedBus.matrixIndex ?? 0
+        let isMuted = state.isMuted(channel: leftCh, busIdx: busIdx)
         return HStack(spacing: 3) {
             Spacer(minLength: 0)
             StripButton(letter: "M", active: isMuted, activeColor: Theme.muteActive) {
                 let newValue = !isMuted
-                state.userSetMixerMute(channel: leftCh,  muted: newValue)
-                state.userSetMixerMute(channel: rightCh, muted: newValue)
+                state.userSetMixerMute(channel: leftCh,  busIdx: busIdx, muted: newValue)
+                state.userSetMixerMute(channel: rightCh, busIdx: busIdx, muted: newValue)
             }
             Spacer(minLength: 0)
         }

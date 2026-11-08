@@ -24,8 +24,9 @@ struct ChannelStrip: View {
 
     var body: some View {
         let source = state.mixerSources[channel]
-        let isMuted = state.mixerMutes[channel]
-        let isSoloed = state.mixerSolos[channel]
+        let busIdx = state.selectedBus.matrixIndex ?? 0
+        let isMuted = state.isMuted(channel: channel, busIdx: busIdx)
+        let isSoloed = state.isSoloed(channel: channel, busIdx: busIdx)
 
         VStack(spacing: StripLayout.vSpacing) {
             header(source: source)
@@ -198,7 +199,7 @@ struct ChannelStrip: View {
                 get: { level },
                 set: { state.userSetMixerLevel(channel: channel, busIdx: busIdx, level: $0) }
             ))
-            .opacity(state.mixerMutes[channel] ? 0.4 : 1.0)
+            .opacity(state.isMuted(channel: channel, busIdx: busIdx) ? 0.4 : 1.0)
             .contextMenu {
                 Button("Reset fader to 0 dB") {
                     state.userSetMixerLevel(channel: channel, busIdx: busIdx, level: 0)
@@ -304,7 +305,7 @@ struct ChannelStrip: View {
         return StripReadout(
             state: state,
             faderDb: state.mixLevel(channel: channel, busIdx: busIdx),
-            faderMuted: state.mixerMutes[channel],
+            faderMuted: state.isMuted(channel: channel, busIdx: busIdx),
             maxPeak: { [stereo, rightSource] s in
                 let left = StripMeter.level(from: s.peaksMax, source: source, profile: s.profile)
                 guard stereo else { return left }
@@ -323,7 +324,7 @@ struct ChannelStrip: View {
         HStack(spacing: 3) {
             Spacer(minLength: 0)
             StripButton(letter: "M", active: isMuted, activeColor: Theme.muteActive) {
-                state.userToggleMixerMute(channel: channel)
+                state.userToggleMixerMute(channel: channel, busIdx: state.selectedBus.matrixIndex ?? 0)
             }
             // A stereo pair carries its link button between mute and solo; for
             // two separate strips it sits in the gap between them instead
@@ -332,7 +333,7 @@ struct ChannelStrip: View {
                 LinkButton(active: true) { state.userToggleLink(channel: channel) }
             }
             StripButton(letter: "S", active: isSoloed, activeColor: Theme.soloActive) {
-                state.userToggleMixerSolo(channel: channel)
+                state.userToggleMixerSolo(channel: channel, busIdx: state.selectedBus.matrixIndex ?? 0)
             }
             Spacer(minLength: 0)
         }

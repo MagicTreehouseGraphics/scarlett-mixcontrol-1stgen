@@ -457,4 +457,113 @@ final class MixLinkTests: XCTestCase {
         s.userCopyMix(from: 2, to: 0)                                // and so can't be a source
         XCTAssertEqual(s.mixLevel(channel: 0, busIdx: 0), -8)
     }
+
+    // MARK: - Mute and solo per mix
+
+    func testMutingSilencesAChannelInThatMixOnly() {
+        let s = makeState()
+        s.userToggleMixerMute(channel: 0, busIdx: 0)
+        XCTAssertEqual(gains(s, channel: 0, pair: 0).0, MixGain.floorDb)
+        XCTAssertEqual(gains(s, channel: 0, pair: 0).1, MixGain.floorDb)    // the linked pair is never half muted
+        XCTAssertEqual(gains(s, channel: 0, pair: 1).0, 0)                  // other mixes play on
+        XCTAssertEqual(gains(s, channel: 1, pair: 0).0, 0)                  // and so do other channels
+        XCTAssertTrue(s.isMuted(channel: 0, busIdx: 1))
+        XCTAssertFalse(s.isMuted(channel: 0, busIdx: 2))
+
+        s.userToggleMixerMute(channel: 0, busIdx: 1)                        // either tab of the pair unmutes it
+        XCTAssertEqual(gains(s, channel: 0, pair: 0).0, 0)
+    }
+
+    func testMutingAMonoMixLeavesItsPartnerPlaying() {
+        let s = makeState()
+        s.userSetMixPairLinked(0, linked: false)
+        s.userToggleMixerMute(channel: 0, busIdx: 0)
+        XCTAssertEqual(gains(s, channel: 0, pair: 0).0, MixGain.floorDb)
+        XCTAssertEqual(gains(s, channel: 0, pair: 0).1, 0)
+    }
+
+    func testMuteFollowsTheStereoLinkedPartnerInThatMixOnly() {
+        let s = makeState()
+        s.userToggleLink(channel: 4)
+        s.userToggleMixerMute(channel: 4, busIdx: 2)
+        XCTAssertTrue(s.isMuted(channel: 5, busIdx: 2))
+        XCTAssertTrue(s.isMuted(channel: 5, busIdx: 3))
+        XCTAssertFalse(s.isMuted(channel: 5, busIdx: 0))
+    }
+
+    func testSoloSilencesTheOtherChannelsInThatMixOnly() {
+        let s = makeState()
+        s.userToggleMixerSolo(channel: 3, busIdx: 0)
+        XCTAssertEqual(gains(s, channel: 3, pair: 0).0, 0)
+        XCTAssertEqual(gains(s, channel: 3, pair: 0).1, 0)
+        XCTAssertEqual(gains(s, channel: 4, pair: 0).0, MixGain.floorDb)
+        XCTAssertEqual(gains(s, channel: 4, pair: 0).1, MixGain.floorDb)
+        XCTAssertEqual(gains(s, channel: 4, pair: 1).0, 0)                  // another mix is untouched
+
+        s.userToggleMixerSolo(channel: 3, busIdx: 0)
+        XCTAssertEqual(gains(s, channel: 4, pair: 0).0, 0)
+    }
+
+    func testSoloInAMonoMixDoesNotReachItsPartner() {
+        let s = makeState()
+        s.userSetMixPairLinked(0, linked: false)
+        s.userToggleMixerSolo(channel: 3, busIdx: 1)
+        XCTAssertEqual(gains(s, channel: 4, pair: 0).1, MixGain.floorDb)
+        XCTAssertEqual(gains(s, channel: 4, pair: 0).0, 0)
+    }
+
+    func testRelinkingKeepsTheLeftMixsMuteAndAsksFirst() {
+        let s = makeState()
+        s.userSetMixPairLinked(0, linked: false)
+        s.userToggleMixerMute(channel: 2, busIdx: 1)                        // only the right mix muted
+        XCTAssertTrue(s.relinkingOverwrites(pair: 0))
+        s.userSetMixPairLinked(0, linked: true)
+        XCTAssertFalse(s.isMuted(channel: 2, busIdx: 0))
+        XCTAssertFalse(s.isMuted(channel: 2, busIdx: 1))
+    }
+
+    func testCopyingMixesCopiesTheirMutes() {
+        let s = makeState()
+        s.userToggleMixerMute(channel: 0, busIdx: 0)                        // pair 0 linked, muted
+        s.userCopyMixPair(from: 0, to: 2)
+        XCTAssertTrue(s.isMuted(channel: 0, busIdx: 4))
+        XCTAssertTrue(s.isMuted(channel: 0, busIdx: 5))
+
+        s.userSetMixPairLinked(1, linked: false)
+        s.userSetMixPairLinked(2, linked: false)
+        s.userToggleMixerMute(channel: 1, busIdx: 2)
+        s.userCopyMix(from: 2, to: 5)
+        XCTAssertTrue(s.isMuted(channel: 1, busIdx: 5))
+        XCTAssertFalse(s.isMuted(channel: 1, busIdx: 4))
+    }
+
+    func testMuteSurvivesASnapshotPerMix() throws {
+        let s = makeState()
+        s.userToggleMixerMute(channel: 0, busIdx: 0)
+        let snapshot = s.currentSnapshot(named: "x")
+        let decoded = try JSONDecoder().decode(ScarlettPreset.self, from: JSONEncoder().encode(snapshot))
+        XCTAssertEqual(decoded.mixerMutes[0], false)                        // not muted in every mix
+        XCTAssertEqual(decoded.mixerBusMutes?[0], [true, true, false, false, false, false])
+    }
+
+    func testMutingEverywhereReadsAsTheOldChannelWideMute() throws {
+        let s = makeState()
+        for bus in [0, 2, 4] { s.userToggleMixerMute(channel: 0, busIdx: bus) }
+        let snapshot = s.currentSnapshot(named: "x")
+        XCTAssertEqual(snapshot.mixerMutes[0], true)
+        XCTAssertNil(snapshot.mixerBusMutes)
+        XCTAssertNil(snapshot.mixerBusSolos)
+    }
+
+    func testPresetsSavedBeforePerMixMuteStillDecode() throws {
+        let s = makeState()
+        s.userToggleMixerMute(channel: 0, busIdx: 0)
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(
+            with: JSONEncoder().encode(s.currentSnapshot(named: "old"))) as? [String: Any])
+        json.removeValue(forKey: "mixerBusMutes")
+        json.removeValue(forKey: "mixerBusSolos")
+        let decoded = try JSONDecoder().decode(ScarlettPreset.self, from: JSONSerialization.data(withJSONObject: json))
+        XCTAssertNil(decoded.mixerBusMutes)
+        XCTAssertEqual(decoded.mixerMutes.count, 18)
+    }
 }

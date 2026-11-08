@@ -31,8 +31,8 @@ public struct ScarlettPreset: Codable, Identifiable, Hashable {
     public var mixerSources: [UInt8]    // 18 × SignalSource raw byte
     public var mixerLevels:  [[Double]] // 18 × profile stereo-pair count
     public var mixerPans:    [[Double]] // 18 × profile stereo-pair count
-    public var mixerMutes:   [Bool]     // 18 (per-channel)
-    public var mixerSolos:   [Bool]     // 18 (per-channel)
+    public var mixerMutes:   [Bool]     // 18 (muted in every mix)
+    public var mixerSolos:   [Bool]     // 18 (soloed in every mix)
     public var mixerNames:   [String]   // 18
 
     /// Left-channel indices of linked stereo pairs.
@@ -47,6 +47,12 @@ public struct ScarlettPreset: Codable, Identifiable, Hashable {
     /// is linked.
     public var unlinkedMixes: [Int]?
     public var mixerRightLevels: [[Double]]?
+
+    /// Mute and solo per channel per mix bus (18 × mix count), when they differ
+    /// between mixes.  Absent when they don't, and in older presets, where
+    /// `mixerMutes` and `mixerSolos` apply to every mix.
+    public var mixerBusMutes: [[Bool]]?
+    public var mixerBusSolos: [[Bool]]?
 }
 
 /// The part of the state a preset sets — what "modified since loading"
@@ -65,6 +71,9 @@ struct PresetContent: Codable, Equatable {
     /// nil while every mix pair is linked, so older baselines still match.
     var unlinkedMixes: [Int]?
     var mixerRightLevels: [[Double]]?
+    /// nil while mute and solo are the same in every mix, so older baselines still match.
+    var mixerBusMutes: [[Bool]]?
+    var mixerBusSolos: [[Bool]]?
 }
 
 /// What the user last loaded, and the state right after loading it.  The

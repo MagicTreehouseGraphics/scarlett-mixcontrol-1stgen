@@ -29,14 +29,17 @@ struct MatrixMixerView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             header
-            VStack(spacing: 0) {
-                tabsRow
-                    .zIndex(1)
-                HStack(alignment: .top, spacing: 6) {
+            // The outputs panel runs alongside the tabs and the mix panel, and
+            // the two sides share one height.
+            HStack(alignment: .top, spacing: 6) {
+                VStack(spacing: 0) {
+                    tabsRow
+                        .zIndex(1)
                     mixPanel
-                    PinnedMasterStrip(state: state)
                 }
+                OutputsPanel(state: state)
             }
+            .fixedSize(horizontal: false, vertical: true)
         }
         .confirmationDialog(
             relinkTitle, isPresented: Binding(
@@ -128,11 +131,43 @@ struct MatrixMixerView: View {
                                        @ViewBuilder content: () -> Content) -> some View {
         let lineWidth: CGFloat = 1.5
         let accent = tabColor(key)
+        let analog = AppearanceSettings.shared.look == .analog
         return content()
             .frame(height: tabHeight)
-            .background(FolderTabShape().fill(selected ? Theme.tabPanel : Theme.panelRaised))
+            .background {
+                if analog {
+                    analogTabFace(selected: selected)
+                } else {
+                    FolderTabShape().fill(selected ? Theme.tabPanel : Theme.panelRaised)
+                }
+            }
+            .overlay(alignment: .top) {
+                // The mix's colour as a lit line along the top: bright and
+                // glowing on the open tab, dimmer on the others (where it
+                // only shows for a colour the user chose).
+                if analog, selected || accent != nil {
+                    let color = accent ?? Theme.tabOutline
+                    ZStack(alignment: .top) {
+                        if selected {
+                            // The line lights the tab beneath it.
+                            LinearGradient(colors: [color.opacity(0.30), color.opacity(0)],
+                                           startPoint: .top, endPoint: .bottom)
+                                .frame(height: 16)
+                                .clipShape(FolderTabShape())
+                        }
+                        Capsule()
+                            .fill(color)
+                            .frame(height: 3)
+                            .padding(.horizontal, 6)
+                            .shadow(color: color.opacity(selected ? 1 : 0.5), radius: selected ? 5 : 3)
+                            .shadow(color: color.opacity(selected ? 0.8 : 0), radius: selected ? 11 : 0)
+                            .shadow(color: color.opacity(selected ? 0.5 : 0), radius: selected ? 20 : 0)
+                            .opacity(selected ? 1 : 0.75)
+                    }
+                }
+            }
             .overlay {
-                if let accent {
+                if !analog, let accent {
                     Rectangle().fill(accent)
                         .frame(height: 3)
                         .frame(maxHeight: .infinity, alignment: .top)
@@ -140,7 +175,7 @@ struct MatrixMixerView: View {
                 }
             }
             .overlay {
-                if selected {
+                if !analog, selected {
                     FolderTabShape(inset: lineWidth / 2, overhang: lineWidth)
                         .stroke(accent ?? Theme.tabOutline, lineWidth: lineWidth)
                 }
@@ -149,7 +184,7 @@ struct MatrixMixerView: View {
                 // Hides the panel's top border under the tab.
                 if selected {
                     Rectangle()
-                        .fill(Theme.tabPanel)
+                        .fill(analog ? Theme.faceTop : Theme.tabPanel)
                         .frame(height: lineWidth * 2)
                         .padding(.horizontal, lineWidth)
                         .offset(y: lineWidth)
@@ -167,6 +202,22 @@ struct MatrixMixerView: View {
                     state.userSetMixAppearance(tab: key, name: name, colorHex: hex)
                 }
             }
+    }
+
+    /// The analog look's tab: the open one is cut from the same plate as the
+    /// panel, so the two read as one piece; the others sit lower and darker.
+    private func analogTabFace(selected: Bool) -> some View {
+        FolderTabShape()
+            .fill(LinearGradient(
+                colors: selected ? [Color(white: 0.23), Theme.faceTop] : [Color(white: 0.155), Color(white: 0.115)],
+                startPoint: .top, endPoint: .bottom))
+            .overlay {
+                FolderTabShape(inset: 0.5)
+                    .stroke(LinearGradient(
+                        colors: [Color.white.opacity(selected ? 0.30 : 0.14), Color.white.opacity(0.04)],
+                        startPoint: .top, endPoint: .bottom), lineWidth: 1)
+            }
+            .shadow(color: Color.black.opacity(selected ? 0.35 : 0.5), radius: 3, y: -1)
     }
 
     private func tabLabel(_ bus: MixBus, selected: Bool) -> some View {
@@ -245,11 +296,10 @@ struct MatrixMixerView: View {
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(linked ? Color.white : Theme.textSecondary)
                 .frame(width: 24, height: 20)
-                .background(linked ? Theme.muteActive : Theme.panelRaised)
-                .clipShape(RoundedRectangle(cornerRadius: 4))
+                .analogKey(active: linked, color: Theme.muteActive, cornerRadius: 4)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(AnalogKeyPressStyle())
         .help(linked
               ? "\(name) are one stereo mix. Click to split them into two mono mixes."
               : "\(name) are two mono mixes. Click to link them as one stereo mix.")
@@ -304,48 +354,7 @@ struct MatrixMixerView: View {
             .disabled(!state.isConnected)
             .help("Persist current settings to device flash so they survive a power cycle.")
 
-            outputsMenu
-                .help("Choose which output pairs are pinned as strips on the right, and which get a slider in the menu bar panel.")
         }
-    }
-
-    /// Menu of output pairs — check to pin a pair's strip in the mixer, or
-    /// to give it a slider in the menu bar panel.
-    private var outputsMenu: some View {
-        Menu {
-            Section("Show in mixer") {
-                ForEach(state.physicalOutputGroups, id: \.label) { group in
-                    Toggle(isOn: Binding(
-                        get: { state.visiblePairLabels.contains(group.label) },
-                        set: { _ in state.userToggleOutputPairVisible(label: group.label) }
-                    )) {
-                        Text(group.label)
-                    }
-                }
-            }
-            if !state.menuBarEligibleGroups.isEmpty {
-                Section("Show in menu bar") {
-                    ForEach(state.menuBarEligibleGroups, id: \.label) { group in
-                        Toggle(isOn: Binding(
-                            get: { state.menuBarPairLabels.contains(group.label) },
-                            set: { _ in state.userToggleMenuBarOutput(label: group.label) }
-                        )) {
-                            Text(group.label)
-                        }
-                    }
-                }
-            }
-        } label: {
-            // The chevron marks this as a menu rather than an action.
-            Pill(icon: "rectangle.split.3x1", title: "Outputs", trailingIcon: "chevron.down")
-        }
-        // A `.borderlessButton` menu doesn't draw the label's background
-        // (`ThemedMenuPicker` relies on that for its flat look); a
-        // button-style menu draws the pill as-is.
-        .menuStyle(.button)
-        .buttonStyle(.pill)
-        .menuIndicator(.hidden)
-        .fixedSize()
     }
 
     /// The copy options for a bus tab, in its dropdown and right-click menu.  A
@@ -404,6 +413,7 @@ struct MatrixMixerView: View {
         let shape = UnevenRoundedRectangle(topLeadingRadius: 0, bottomLeadingRadius: 6,
                                            bottomTrailingRadius: 6, topTrailingRadius: 6)
         let outline = tabColor(tabKey(state.selectedBus)) ?? Theme.tabOutline
+        let analog = AppearanceSettings.shared.look == .analog
         return HStack(alignment: .top, spacing: 6) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
@@ -413,14 +423,28 @@ struct MatrixMixerView: View {
                     }
                 }
                 .padding(.vertical, StripLayout.pinnedOutset)
+                // Room for the cards' shadows, which the scroll view would clip.
+                .padding(.horizontal, 6)
                 .background(SidewaysScrollWheel())
             }
             if state.hasPinnedDawReturn {
                 PinnedDawStrip(state: state)
             }
         }
-        .padding(10)
-        .background { shape.fill(Theme.tabPanel) }
-        .overlay { shape.strokeBorder(outline, lineWidth: 1.5) }
+        .padding(.vertical, 10)
+        .padding(.horizontal, 4)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .background {
+            if analog {
+                // The same plate as the open tab, with no colour of its own:
+                // the mix's colour is the lit line on the tab.
+                RaisedFace(shape: shape, panel: true)
+            } else {
+                shape.fill(Theme.tabPanel)
+            }
+        }
+        .overlay {
+            if !analog { shape.strokeBorder(outline, lineWidth: 1.5) }
+        }
     }
 }

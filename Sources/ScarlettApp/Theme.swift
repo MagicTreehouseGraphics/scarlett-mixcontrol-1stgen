@@ -54,10 +54,21 @@ private struct FaderHeightKey: EnvironmentKey {
     static let defaultValue: CGFloat = StripLayout.faderHeight
 }
 
+private struct PageSpareHeightKey: EnvironmentKey {
+    static let defaultValue: CGFloat = 0
+}
+
 extension EnvironmentValues {
     var faderHeight: CGFloat {
         get { self[FaderHeightKey.self] }
         set { self[FaderHeightKey.self] = newValue }
+    }
+
+    /// How much taller the window is than the mixer page, once the faders have
+    /// grown as far as they go.  Lets the outputs panel reach the bottom.
+    var pageSpareHeight: CGFloat {
+        get { self[PageSpareHeightKey.self] }
+        set { self[PageSpareHeightKey.self] = newValue }
     }
 }
 
@@ -91,6 +102,12 @@ enum Theme {
 
     /// Channel underline for analog hardware inputs.
     static let accentAnalog = Color(red: 0.95, green: 0.35, blue: 0.30)
+
+    /// Channel underline for line inputs.
+    static let accentInput = meterLow
+
+    /// Channel underline for ADAT.
+    static let accentDigital = Color(red: 0.62, green: 0.45, blue: 0.95)
 
     /// Channel underline for DAW / playback / PCM.
     static let accentPlayback = Color(red: 0.30, green: 0.65, blue: 1.00)
@@ -127,17 +144,27 @@ enum Theme {
 
 extension SignalSource {
     /// Color used for the strip's channel underline in the mixer.
-    var accentColor: Color {
+    @MainActor var accentColor: Color {
+        // The classic look marks every hardware input the same red.
+        if AppearanceSettings.shared.look == .classic {
+            switch self {
+            case .off: return Theme.accentOther
+            case _ where displayName.hasPrefix("DAW"): return Theme.accentPlayback
+            default: return Theme.accentAnalog
+            }
+        }
         switch self {
         case .daw1, .daw2, .daw3, .daw4, .daw5, .daw6,
              .daw7, .daw8, .daw9, .daw10, .daw11, .daw12,
              .daw13, .daw14, .daw15, .daw16, .daw17, .daw18, .daw19, .daw20:
             return Theme.accentPlayback
         case .analog1, .analog2, .analog3, .analog4,
-             .analog5, .analog6, .analog7, .analog8,
-             .spdif1, .spdif2,
-             .adat1, .adat2, .adat3, .adat4, .adat5, .adat6, .adat7, .adat8:
-            return Theme.accentAnalog
+             .analog5, .analog6, .analog7, .analog8:
+            return Theme.accentInput
+        case .spdif1, .spdif2:
+            return Theme.soloActive
+        case .adat1, .adat2, .adat3, .adat4, .adat5, .adat6, .adat7, .adat8:
+            return Theme.accentDigital
         case .off:
             return Theme.accentOther
         }

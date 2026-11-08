@@ -310,3 +310,114 @@ struct UpdateDot: ViewModifier {
 extension View {
     func updateDot() -> some View { modifier(UpdateDot()) }
 }
+
+// MARK: - Analog key look
+
+/// A plain, square-edged key: a lit one fills with its colour and glows
+/// softly, an unlit one is a dark grey cap with a fine edge.  Drawn behind the
+/// content, so the caller still sets the text, size and foreground colour.
+struct AnalogKey: ViewModifier {
+    let active: Bool
+    let color: Color
+    var cornerRadius: CGFloat = 3
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius)
+        if AppearanceSettings.shared.look == .classic {
+            content
+                .background(active ? color : Theme.panelRaised)
+                .clipShape(shape)
+        } else {
+            analog(content, shape: shape)
+        }
+    }
+
+    private func analog(_ content: Content, shape: RoundedRectangle) -> some View {
+        content
+            .background {
+                shape.fill(active ? color : Color(white: 0.16))
+                    .overlay {
+                        shape.strokeBorder(Color.white.opacity(active ? 0.25 : 0.09), lineWidth: 0.75)
+                    }
+            }
+            .shadow(color: active ? color.opacity(0.5) : .clear, radius: 3)
+    }
+}
+
+extension View {
+    func analogKey(active: Bool, color: Color, cornerRadius: CGFloat = 3) -> some View {
+        modifier(AnalogKey(active: active, color: color, cornerRadius: cornerRadius))
+    }
+}
+
+/// Presses an `AnalogKey` in: a pixel down and a touch darker.  In the
+/// classic look it only dims, as a plain button does.
+struct AnalogKeyPressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        let analog = AppearanceSettings.shared.look == .analog
+        configuration.label
+            .offset(y: analog && configuration.isPressed ? 1 : 0)
+            .brightness(analog && configuration.isPressed ? -0.1 : 0)
+            .opacity(!analog && configuration.isPressed ? 0.7 : 1)
+    }
+}
+
+// MARK: - Raised surfaces
+
+extension Theme {
+    /// The raised faceplate the analog look's cards and panels are lit from:
+    /// lighter at the top, falling into shadow at the bottom.
+    static let faceTop = Color(white: 0.215)
+    static let faceMid = Color(white: 0.158)
+    static let faceBottom = Color(white: 0.105)
+}
+
+/// A plate standing proud of the window: a gradient lit from above, a bright
+/// bevel along the top and a dark one underneath, and a soft shadow cast
+/// onto what's behind it.
+struct RaisedFace<S: InsettableShape>: View {
+    let shape: S
+    /// A panel is a flatter, larger plate than a card, with a deeper shadow.
+    var panel = false
+
+    var body: some View {
+        shape
+            .fill(LinearGradient(
+                stops: [.init(color: Theme.faceTop, location: 0),
+                        .init(color: Theme.faceMid, location: panel ? 0.35 : 0.5),
+                        .init(color: Theme.faceBottom, location: 1)],
+                startPoint: .top, endPoint: .bottom))
+            .overlay {
+                // Light catching the top of the plate, and its lower edge
+                // rolling away into shadow.
+                shape.fill(LinearGradient(
+                    stops: [.init(color: Color.white.opacity(0.12), location: 0),
+                            .init(color: Color.clear, location: 0.10),
+                            .init(color: Color.clear, location: 0.88),
+                            .init(color: Color.black.opacity(0.30), location: 1)],
+                    startPoint: .top, endPoint: .bottom))
+            }
+            .overlay {
+                // A bevel: lit along the top and left, dark along the bottom.
+                shape.strokeBorder(LinearGradient(
+                    stops: [.init(color: Color.white.opacity(0.36), location: 0),
+                            .init(color: Color.white.opacity(0.10), location: 0.3),
+                            .init(color: Color.black.opacity(0.75), location: 1)],
+                    startPoint: .top, endPoint: .bottom), lineWidth: 1.25)
+            }
+            .shadow(color: Color.black.opacity(panel ? 0.65 : 0.6), radius: panel ? 8 : 5, y: panel ? 5 : 3)
+    }
+}
+
+extension View {
+    /// A strip's card: flat in the classic look, a raised plate in the analog one.
+    @ViewBuilder
+    func stripCard() -> some View {
+        if AppearanceSettings.shared.look == .classic {
+            background(Theme.panel).clipShape(RoundedRectangle(cornerRadius: 6))
+        } else {
+            background { RaisedFace(shape: RoundedRectangle(cornerRadius: 6)) }
+        }
+    }
+}

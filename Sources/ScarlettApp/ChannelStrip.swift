@@ -60,8 +60,7 @@ struct ChannelStrip: View {
         .frame(width: stereo ? StripLayout.stereoWidth : StripLayout.width)
         .padding(.vertical, StripLayout.cardPaddingV)
         .padding(.horizontal, 6)
-        .background(Theme.panel)
-        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .stripCard()
     }
 
     // MARK: - Contextual hardware-input switch
@@ -516,11 +515,10 @@ struct LinkButton: View {
             Image(systemName: "link")
                 .font(.system(size: 10, weight: .semibold))
                 .frame(width: 22, height: 22)
-                .background(active ? Theme.muteActive : Theme.panelRaised)
-                .foregroundStyle(active ? .white : Theme.textSecondary)
-                .clipShape(RoundedRectangle(cornerRadius: 3))
+                .foregroundStyle(active ? Color.white : Theme.textSecondary)
+                .analogKey(active: active, color: Theme.muteActive)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(AnalogKeyPressStyle())
         .help(active ? "Stereo pair (click to split into two channels)" : "Link these two channels as a stereo pair")
         .accessibilityLabel(active ? "Split stereo pair" : "Link as stereo pair")
     }
@@ -537,10 +535,9 @@ struct StripButton: View {
             Text(letter)
                 .font(.system(size: 11, weight: .semibold, design: .monospaced))
                 .frame(width: 26, height: 22)
-                .background(active ? activeColor : Theme.panelRaised)
-                .foregroundStyle(active ? .white : Theme.textSecondary)
-                .clipShape(RoundedRectangle(cornerRadius: 3))
+                .foregroundStyle(active ? Color.white : Theme.textSecondary)
+                .analogKey(active: active, color: activeColor)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(AnalogKeyPressStyle())
     }
 }

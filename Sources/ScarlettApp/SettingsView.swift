@@ -3,10 +3,11 @@ import AppKit
 import ServiceManagement
 
 /// App settings (Cmd+, or the menu bar panel's gear menu): the Dock icon,
-/// launch at login, and About.
+/// launch at login, the mixer's look, and About.
 @MainActor
 struct SettingsView: View {
     @Bindable private var app = AppController.shared
+    @Bindable private var appearance = AppearanceSettings.shared
     @State private var loginItem = LoginItem()
     private var updates = UpdateChecker.shared
 
@@ -18,6 +19,19 @@ struct SettingsView: View {
             return "The app lives in the menu bar only — no Dock icon, no Cmd+Tab entry. Open the mixer from the menu bar panel."
         default:
             return "No menu bar icon or panel. Closing the mixer window keeps the app running; click its Dock icon to bring the mixer back. One of the two always stays on."
+        }
+    }
+
+    private var meterGlowCaption: String {
+        switch appearance.meterGlow {
+        case .automatic:
+            return appearance.lowPowerMode
+                ? "Simple right now, because the Mac is in Low Power Mode."
+                : "Full glow, switching to Simple while the Mac is in Low Power Mode."
+        case .full:
+            return "A soft halo beside every meter, even in Low Power Mode."
+        case .simple:
+            return "No soft halo beside the meters: a plainer look that does a little less drawing."
         }
     }
 
@@ -49,6 +63,26 @@ struct SettingsView: View {
                     Button("Open Login Items Settings…") {
                         SMAppService.openSystemSettingsLoginItems()
                     }
+                }
+            }
+            Section("Appearance") {
+                Picker("Mixer look", selection: $appearance.look) {
+                    ForEach(MixerLook.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                Text(appearance.look == .classic
+                     ? "The app's original design by @MarecekW."
+                     : "Hardware-style faders and glowing LED meters.")
+                    .font(.caption)
+                    .foregroundStyle(Theme.textSecondary)
+                if appearance.look == .analog {
+                    Picker("Meter glow", selection: $appearance.meterGlow) {
+                        ForEach(MeterGlow.allCases) { Text($0.title).tag($0) }
+                    }
+                    Text(meterGlowCaption)
+                        .font(.caption)
+                        .foregroundStyle(Theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             Section("About") {

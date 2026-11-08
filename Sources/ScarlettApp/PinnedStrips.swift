@@ -28,8 +28,7 @@ struct PinnedDawStrip: View {
         .frame(width: StripLayout.width)
         .padding(.vertical, StripLayout.cardPaddingV + StripLayout.pinnedOutset)
         .padding(.horizontal, 6)
-        .background(Theme.panel)
-        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .stripCard()
     }
 
     private var header: some View {
@@ -205,17 +204,39 @@ struct OutputStrip: View {
     var body: some View {
         VStack(spacing: StripLayout.vSpacing) {
             header
-            Color.clear.frame(height: StripLayout.switchRowHeight)
-            Color.clear.frame(height: StripLayout.panRowHeight)
+            // The output's icon fills the rows that hold the input switch and
+            // pan on a channel strip, so the faders still line up.
+            Group {
+                if analog {
+                    Image(systemName: kind.icon)
+                        .font(.system(size: 22))
+                        .foregroundStyle(kind.color)
+                        .shadow(color: kind.color.opacity(0.55), radius: 4)
+                } else {
+                    Color.clear
+                }
+            }
+            .frame(height: StripLayout.switchRowHeight + StripLayout.vSpacing + StripLayout.panRowHeight)
             fader
             peakReadout
             controls
         }
         .frame(width: StripLayout.width)
-        .padding(.vertical, StripLayout.cardPaddingV + StripLayout.pinnedOutset)
+        .padding(.vertical, StripLayout.cardPaddingV + (analog ? 0 : StripLayout.pinnedOutset))
         .padding(.horizontal, 6)
-        .background(Theme.panel)
-        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .stripCard()
+    }
+
+    private var analog: Bool { AppearanceSettings.shared.look == .analog }
+
+    /// An icon and colour for the kind of output this pair is (analog look).
+    private var kind: (icon: String, color: Color, faderTint: Color) {
+        let name = title.lowercased()
+        if name.contains("monitor") { return ("display", Theme.textPrimary, Theme.meterHigh) }
+        if name.contains("phones") { return ("headphones", Theme.accentAnalog, Theme.meterHigh) }
+        if name.contains("s/pdif") { return ("cable.connector", Theme.soloActive, Theme.soloActive) }
+        if name.contains("adat") { return ("waveform", Theme.accentDigital, Theme.accentDigital) }
+        return ("hifispeaker.fill", Theme.accentInput, Theme.soloActive)
     }
 
     private var header: some View {
@@ -229,7 +250,7 @@ struct OutputStrip: View {
                 .lineLimit(1)
             Spacer(minLength: 0)
             Rectangle()
-                .fill(Theme.textSecondary.opacity(0.5))
+                .fill(analog ? kind.color.opacity(0.7) : Theme.textSecondary.opacity(0.5))
                 .frame(height: 2)
                 .padding(.horizontal, 2)
         }
@@ -242,11 +263,11 @@ struct OutputStrip: View {
                 // Level is owned by the front-panel knob; the fader just
                 // tracks it. Not draggable — turning the knob moves it.
                 VerticalFader(db: Binding(get: { displayedDb }, set: { _ in }),
-                              axis: .attenuation)
+                              axis: .attenuation, tint: analog ? kind.faderTint : nil)
                     .allowsHitTesting(false)
                     .help("Monitor level is set by the front-panel knob on this device — the fader mirrors it.")
             } else if hasGainStage {
-                VerticalFader(db: atten, axis: .attenuation)
+                VerticalFader(db: atten, axis: .attenuation, tint: analog ? kind.faderTint : nil)
                     .contextMenu {
                         Button("Reset to 0 dB") {
                             state.userSetPairAtten(leftWValue: leftWValue, db: 0)
@@ -377,14 +398,29 @@ struct HWIndicator: View {
             .font(.system(size: 8, weight: .semibold))
             .padding(.horizontal, 5)
             .padding(.vertical, 3)
-            .background(active ? activeColor : Theme.panelRaised.opacity(0.5))
-            .foregroundStyle(active ? .white : Theme.textSecondary.opacity(0.6))
-            .clipShape(RoundedRectangle(cornerRadius: 3))
-            .overlay(
-                RoundedRectangle(cornerRadius: 3)
-                    .strokeBorder(Theme.textSecondary.opacity(0.25), lineWidth: 0.5)
-            )
+            .foregroundStyle(active ? Color.white : Theme.textSecondary.opacity(0.6))
+            .modifier(HWIndicatorFace(active: active, color: activeColor))
             .help("\(label) is controlled by the front-panel button on this device — shown here read-only.")
+    }
+}
+
+/// The read-only lamp's face: a key in the analog look, the original outlined
+/// lamp in the classic one.
+private struct HWIndicatorFace: ViewModifier {
+    let active: Bool
+    let color: Color
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if AppearanceSettings.shared.look == .classic {
+            content
+                .background(active ? color : Theme.panelRaised.opacity(0.5))
+                .clipShape(RoundedRectangle(cornerRadius: 3))
+                .overlay(RoundedRectangle(cornerRadius: 3)
+                    .strokeBorder(Theme.textSecondary.opacity(0.25), lineWidth: 0.5))
+        } else {
+            content.analogKey(active: active, color: color)
+        }
     }
 }
 

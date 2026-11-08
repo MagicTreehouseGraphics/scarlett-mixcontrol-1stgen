@@ -39,6 +39,7 @@ struct DbAxis {
         return 0.28
     }
 
+    /// Half the analog cap, the taller one, so either look's cap fits at the ends.
     static let inset: CGFloat = VerticalFader.knobHeight / 2
 
     var top: Double { breakpoints.first ?? 0 }
@@ -108,14 +109,40 @@ struct DbAxis {
 struct VerticalFader: View {
     @Binding var db: Double
     var axis: DbAxis = .gain
+    /// Anodised colour for the cap, and the lit line in the slot below it (the
+    /// output faders); nil is the matte silver cap of the channel faders.
+    var tint: Color?
     @Environment(\.faderHeight) private var height
 
-    static let knobHeight: CGFloat = 14
-    private let trackWidth: CGFloat = 4
-    private let knobWidth: CGFloat = 30
+    static let knobHeight: CGFloat = 32
+    private let trackWidth: CGFloat = 11
+    private let slotWidth: CGFloat = 1.5
+    /// How far the slot stops short of each end of the housing, clear of its
+    /// rounded ends.
+    private var slotInset: CGFloat { trackWidth / 2 + 4 }
+    private let knobWidth: CGFloat = 20
     private var knobHeight: CGFloat { Self.knobHeight }
 
     var body: some View {
+        Group {
+            if AppearanceSettings.shared.look == .classic {
+                classicFader
+            } else {
+                analogFader
+            }
+        }
+        .contentShape(Rectangle())
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { drag in
+                    db = axis.db(atY: drag.location.y, height: height)
+                }
+        )
+        .simultaneousGesture(TapGesture(count: 2).onEnded { db = 0 })
+    }
+
+    /// The hardware-style fader: a recessed housing, a slot, and a chunky cap.
+    private var analogFader: some View {
         // Height comes from `\.faderHeight`, so no GeometryReader (which
         // would force a layout pass on every frame).  Drag-gesture
         // `.location.y` is already in this view's local coordinate space.
@@ -131,10 +158,63 @@ struct VerticalFader: View {
                 Rectangle().frame(height: 1)
             }
             .foregroundStyle(Theme.textSecondary.opacity(0.6))
+            .frame(width: knobWidth + 4, height: 1)
+            .offset(y: axis.y(0, height: height) - 0.5)
+
+            housing
+                .frame(width: trackWidth, height: bottomY - topY)
+                .offset(y: topY)
+
+            // The slot the cap's stem runs in: a hairline pitch-black cut down
+            // the middle of the housing, with a lit lip on its far side.
+            HStack(spacing: 0) {
+                Capsule().fill(Color.black).frame(width: slotWidth)
+                Capsule().fill(Color.white.opacity(0.04)).frame(width: 0.5)
+            }
+            .frame(height: max(0, bottomY - topY - 2 * slotInset))
+            .offset(x: 0.25, y: topY + slotInset)
+
+            if let tint {
+                // A lit line in the slot from the cap down, with a soft halo.
+                let lineHeight = max(0, bottomY - slotInset - knobY)
+                Capsule()
+                    .fill(tint.opacity(0.25))
+                    .frame(width: slotWidth + 4, height: lineHeight)
+                    .offset(y: knobY)
+                Capsule()
+                    .fill(tint)
+                    .frame(width: slotWidth + 0.5, height: lineHeight)
+                    .offset(y: knobY)
+            }
+
+            cap
+                .frame(width: knobWidth, height: knobHeight)
+                .shadow(color: Color.black.opacity(0.7), radius: 4, y: 4)
+                .shadow(color: Color.black.opacity(0.55), radius: 1, y: 1.5)
+                .offset(y: knobY - knobHeight / 2)
+        }
+        .frame(width: knobWidth + 6, height: height, alignment: .top)
+    }
+
+    /// The original fader: a thin flat track, a fill below the cap, and a
+    /// small gradient cap.
+    private var classicFader: some View {
+        let knobHeight: CGFloat = 14
+        let trackWidth: CGFloat = 4
+        let knobWidth: CGFloat = 30
+        let topY = axis.y(axis.top, height: height)
+        let bottomY = axis.y(axis.bottom, height: height)
+        let knobY = axis.y(db, height: height)
+
+        return ZStack(alignment: .top) {
+            HStack(spacing: trackWidth + 6) {
+                Rectangle().frame(height: 1)
+                Rectangle().frame(height: 1)
+            }
+            .foregroundStyle(Theme.textSecondary.opacity(0.6))
             .frame(width: knobWidth, height: 1)
             .offset(y: axis.y(0, height: height) - 0.5)
 
-            // Track: exactly the axis' extent, like the meter beside it.
             RoundedRectangle(cornerRadius: 2)
                 .fill(Theme.faderTrack)
                 .frame(width: trackWidth, height: bottomY - topY)
@@ -146,30 +226,124 @@ struct VerticalFader: View {
                 .offset(y: knobY)
 
             RoundedRectangle(cornerRadius: 2.5)
-                .fill(
-                    LinearGradient(
-                        colors: [Color(white: 0.85), Theme.faderKnob, Color(white: 0.55)],
-                        startPoint: .top, endPoint: .bottom
-                    )
-                )
-                .overlay(
-                    Rectangle()
-                        .fill(Color.black.opacity(0.35))
-                        .frame(height: 1)
-                )
+                .fill(LinearGradient(
+                    colors: [Color(white: 0.85), Theme.faderKnob, Color(white: 0.55)],
+                    startPoint: .top, endPoint: .bottom))
+                .overlay(Rectangle().fill(Color.black.opacity(0.35)).frame(height: 1))
                 .frame(width: knobWidth, height: knobHeight)
                 .shadow(color: Theme.faderKnobShadow, radius: 1.5, y: 1)
                 .offset(y: knobY - knobHeight / 2)
         }
         .frame(width: knobWidth + 6, height: height, alignment: .top)
-        .contentShape(Rectangle())
-        .gesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { drag in
-                    db = axis.db(atY: drag.location.y, height: height)
+    }
+}
+
+extension VerticalFader {
+    /// The track housing: a rounded channel cut into the panel.  Inside it is
+    /// darker than the panel, its upper edge throws a shadow down into it, and
+    /// light catches the lip at the bottom, so it reads as set in rather than
+    /// standing up.  The walls fall away toward the slit in the middle.
+    fileprivate var housing: some View {
+        let shape = RoundedRectangle(cornerRadius: trackWidth / 2)
+        return shape
+            .fill(LinearGradient(
+                stops: [.init(color: Color(white: 0.135), location: 0),
+                        .init(color: Color(white: 0.11), location: 0.32),
+                        .init(color: Color(white: 0.085), location: 0.5),
+                        .init(color: Color(white: 0.11), location: 0.68),
+                        .init(color: Color(white: 0.13), location: 1)],
+                startPoint: .leading, endPoint: .trailing))
+            .overlay(alignment: .top) {
+                // Shadow cast down into the channel by its upper edge.
+                LinearGradient(colors: [Color.black.opacity(0.75), Color.black.opacity(0)],
+                               startPoint: .top, endPoint: .bottom)
+                    .frame(height: 16)
+                    .clipShape(shape)
+            }
+            .overlay {
+                // Shadow along the left wall, light from above-left.
+                shape.fill(LinearGradient(
+                    stops: [.init(color: Color.black.opacity(0.45), location: 0),
+                            .init(color: Color.clear, location: 0.35)],
+                    startPoint: .leading, endPoint: .trailing))
+            }
+            .overlay {
+                // The panel's cut edge: darkest along the top, fading out
+                // toward the bottom rather than turning into a lit ring.
+                shape.strokeBorder(LinearGradient(
+                    stops: [.init(color: Color.black.opacity(0.95), location: 0),
+                            .init(color: Color.black.opacity(0.75), location: 0.6),
+                            .init(color: Color.black.opacity(0.45), location: 1)],
+                    startPoint: .top, endPoint: .bottom), lineWidth: 1)
+            }
+            .background(alignment: .bottom) {
+                // A hint of light where the panel's surface meets the cut below it.
+                Capsule()
+                    .fill(Color.white.opacity(0.05))
+                    .frame(width: trackWidth - 2, height: 2)
+                    .blur(radius: 0.5)
+                    .offset(y: 1.5)
+            }
+    }
+
+    /// The fader cap, shaped like a classic hourglass cap and lit from above:
+    /// a bright top lip, two concave scoops with grip ridges meeting at an
+    /// inset position line, and a base in shadow.  Matte silver with a dark
+    /// line, or anodised `tint` with a bright one.
+    fileprivate var cap: some View {
+        let shape = RoundedRectangle(cornerRadius: 3.5)
+        let base = tint ?? Color(white: 0.70)
+        return shape
+            .fill(base)
+            .overlay {
+                VStack(spacing: 0) {
+                    // Top lip, facing the light.
+                    LinearGradient(colors: [Color.white.opacity(0.75), Color.white.opacity(0.30)],
+                                   startPoint: .top, endPoint: .bottom)
+                        .frame(height: 3)
+                    // Upper scoop: turns away from the light toward the line.
+                    LinearGradient(colors: [Color.white.opacity(0.10), Color.black.opacity(0.28)],
+                                   startPoint: .top, endPoint: .bottom)
+                        .overlay { ridges }
+                    positionLine
+                    // Lower scoop: faces up just under the line, so it's brightest there.
+                    LinearGradient(colors: [Color.white.opacity(0.38), Color.black.opacity(0.10)],
+                                   startPoint: .top, endPoint: .bottom)
+                        .overlay { ridges }
+                    // Base: the cap's lower side, in its own shadow.
+                    LinearGradient(colors: [Color.black.opacity(0.42), Color.black.opacity(0.62)],
+                                   startPoint: .top, endPoint: .bottom)
+                        .frame(height: 5)
                 }
-        )
-        .simultaneousGesture(TapGesture(count: 2).onEnded { db = 0 })
+                .clipShape(shape)
+            }
+            .overlay {
+                shape.strokeBorder(LinearGradient(
+                    colors: [Color.white.opacity(0.55), Color.black.opacity(0.75)],
+                    startPoint: .top, endPoint: .bottom), lineWidth: 0.75)
+            }
+    }
+
+    private var positionLine: some View {
+        VStack(spacing: 0) {
+            if tint == nil {
+                Rectangle().fill(Color.black.opacity(0.85)).frame(height: 1.75)
+                Rectangle().fill(Color.white.opacity(0.35)).frame(height: 0.5)
+            } else {
+                Rectangle().fill(Color.black.opacity(0.35)).frame(height: 0.5)
+                Rectangle().fill(Color.white.opacity(0.92)).frame(height: 1.5)
+            }
+        }
+        .padding(.horizontal, 2)
+    }
+
+    private var ridges: some View {
+        VStack(spacing: 2.5) {
+            ForEach(0..<2, id: \.self) { _ in
+                Rectangle().fill(Color.black.opacity(0.16)).frame(height: 0.75)
+            }
+        }
+        .padding(.horizontal, 2)
     }
 }
 
@@ -234,12 +408,22 @@ struct VerticalMeter: View {
     /// fader headroom only.
     private let dbMax: Double = 0
     private let dbFloor = DbAxis.meterFloor
-    private let width: CGFloat = 6
+    private let width: CGFloat = 8
     private let ledHeight: CGFloat = 4
+    /// Room around the well for the LEDs' glow to spill into.
+    private let glowRoom: CGFloat = 8
 
     var body: some View {
-        // Height comes from `\.faderHeight` — no GeometryReader needed.
-        // The track spans the full axis, like the fader track beside it.
+        if AppearanceSettings.shared.look == .classic {
+            classicMeter
+        } else {
+            analogMeter
+        }
+    }
+
+    /// The original meter: a solid bar on a three-colour gradient.
+    private var classicMeter: some View {
+        let width: CGFloat = 6
         let topY = axis.y(axis.top, height: height)
         let bottomY = axis.y(axis.bottom, height: height)
         let trackHeight = bottomY - topY
@@ -269,12 +453,9 @@ struct VerticalMeter: View {
                         .init(color: Theme.meterLow,  location: stop(-24)),
                         .init(color: Theme.meterLow,  location: 1),
                     ],
-                    startPoint: .top, endPoint: .bottom
-                ))
+                    startPoint: .top, endPoint: .bottom))
                 .frame(width: width, height: trackHeight)
-                .mask(alignment: .bottom) {
-                    Rectangle().frame(height: max(0, fill))
-                }
+                .mask(alignment: .bottom) { Rectangle().frame(height: max(0, fill)) }
                 .offset(y: topY)
 
             if peakDb.isFinite && peakDb > dbFloor {
@@ -292,5 +473,179 @@ struct VerticalMeter: View {
             }
         }
         .frame(width: width + 4, height: height, alignment: .top)
+    }
+
+    /// LED ladder in a recessed well, drawn by `draw` on a canvas.
+    private var analogMeter: some View {
+        // Height comes from `\.faderHeight` — no GeometryReader needed.
+        // The well spans the full axis, like the fader track beside it.
+        let topY = axis.y(axis.top, height: height)
+        let bottomY = axis.y(axis.bottom, height: height)
+        let trackHeight = bottomY - topY
+
+        return ZStack(alignment: .top) {
+            // The well the LEDs sit behind: cut into the panel, almost black.
+            RoundedRectangle(cornerRadius: 2)
+                .fill(Color(white: 0.025))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 2)
+                        .strokeBorder(LinearGradient(
+                            colors: [Color.black, Color.white.opacity(0.13)],
+                            startPoint: .top, endPoint: .bottom), lineWidth: 1)
+                }
+                .frame(width: width + 2, height: trackHeight + 2)
+                .offset(y: topY - 1)
+
+            Canvas { [simple = AppearanceSettings.shared.simpleMeters] context, size in
+                draw(in: &context, topY: topY, bottomY: bottomY, simple: simple)
+            }
+            .frame(width: width + 2 * glowRoom, height: height)
+            .allowsHitTesting(false)
+        }
+        .frame(width: width + 4, height: height, alignment: .top)
+    }
+
+    // MARK: - Drawing
+
+    /// The ladder, drawn as a few gradient fills and one path per frame (the
+    /// meters redraw ~20 times a second, so no blur filters and no per-segment
+    /// level lookups).  Lit segments glow like bulbs behind a dark lens,
+    /// brightest down the middle, and throw a little light onto the dead ones
+    /// just above the level, which stay faintly visible in their colour.
+    private func draw(in context: inout GraphicsContext, topY: CGFloat, bottomY: CGFloat, simple: Bool) {
+        let pitch: CGFloat = 2.5
+        let gap: CGFloat = 0.6
+        let x = glowRoom
+        let span = bottomY - topY
+        guard span > 0 else { return }
+        let ramp = Gradient(stops: Self.stops.reversed().map {
+            .init(color: Color(red: $0.rgb.0, green: $0.rgb.1, blue: $0.rgb.2),
+                  location: (axis.y($0.db, height: height) - topY) / span)
+        })
+        let shading = { (ctx: inout GraphicsContext, rect: CGRect, opacity: Double) in
+            ctx.opacity = opacity
+            ctx.fill(Path(rect), with: .linearGradient(ramp, startPoint: CGPoint(x: 0, y: topY),
+                                                       endPoint: CGPoint(x: 0, y: bottomY)))
+            ctx.opacity = 1
+        }
+
+        let column = CGRect(x: x, y: topY, width: width, height: span)
+        let isLive = db.isFinite && db > dbFloor
+        let levelY = isLive ? axis.y(min(db, dbMax), height: height) : bottomY
+
+        // Dead lenses all the way up.
+        shading(&context, column, 0.11)
+
+        if isLive && levelY < bottomY {
+            let lit = CGRect(x: x, y: levelY, width: width, height: bottomY - levelY)
+            // How much of the ladder is lit, 0…1.  More lit segments give off
+            // more light: the halo gets brighter and the bleed reaches further.
+            let litShare = Double(lit.height / span)
+            if !simple {
+                // Halo: the lit column's colours, widened and faded out
+                // sideways and at both ends, so the light spreads softly onto
+                // the panel.  The one part that needs a layer, so Simple skips it.
+                let reach = 8 + 40 * CGFloat(litShare)
+                let halo = CGRect(x: x - glowRoom + 1, y: levelY - reach, width: width + 2 * glowRoom - 2,
+                                  height: bottomY - levelY + reach + 4)
+                context.drawLayer { layer in
+                    shading(&layer, halo, 0.16 + 0.30 * litShare)
+                    // The masks overhang the halo so its anti-aliased edges
+                    // are covered too, leaving no seam.
+                    let mask = Path(halo.insetBy(dx: -2, dy: -2))
+                    layer.blendMode = .destinationIn
+                    layer.fill(mask, with: .linearGradient(
+                        Gradient(stops: [.init(color: .clear, location: 0), .init(color: .white, location: 0.5),
+                                         .init(color: .clear, location: 1)]),
+                        startPoint: CGPoint(x: halo.minX, y: 0), endPoint: CGPoint(x: halo.maxX, y: 0)))
+                    layer.fill(mask, with: .linearGradient(
+                        Gradient(colors: [.clear, .white]),
+                        startPoint: CGPoint(x: 0, y: halo.minY), endPoint: CGPoint(x: 0, y: levelY + 8)))
+                    layer.fill(mask, with: .linearGradient(
+                        Gradient(colors: [.white, .clear]),
+                        startPoint: CGPoint(x: 0, y: bottomY - 6), endPoint: CGPoint(x: 0, y: halo.maxY)))
+                }
+            }
+            // Light spilling onto the dead lenses above the level: a few
+            // segments for a quiet signal, far up the ladder for a loud one.
+            let bleed = min(14 + span * 0.5 * CGFloat(litShare), levelY - topY)
+            let strength = 0.45 + 0.75 * litShare
+            let level = Self.color(atDb: db)
+            context.fill(Path(CGRect(x: x, y: levelY - bleed, width: width, height: bleed)),
+                         with: .linearGradient(Gradient(stops: [
+                            .init(color: level.opacity(0), location: 0),
+                            .init(color: level.opacity(0.07 * strength), location: 0.3),
+                            .init(color: level.opacity(0.14 * strength), location: 0.6),
+                            .init(color: level.opacity(0.20 * strength), location: 0.82),
+                            .init(color: level.opacity(0.42 * strength), location: 1)]),
+                                               startPoint: CGPoint(x: 0, y: levelY - bleed),
+                                               endPoint: CGPoint(x: 0, y: levelY)))
+            shading(&context, lit, 1)
+            // The bright middle of each bulb.
+            context.fill(Path(lit.insetBy(dx: width * 0.3, dy: 0)), with: .color(.white.opacity(0.4)))
+        }
+
+        // The gaps between segments, cut over everything.
+        var gaps = Path()
+        var y = bottomY - pitch
+        while y > topY {
+            gaps.addRect(CGRect(x: x, y: y, width: width, height: gap))
+            y -= pitch
+        }
+        context.fill(gaps, with: .color(Color(white: 0.025)))
+
+        // Clip lamp above the ladder: dim red until the level has clipped.
+        let lamp = CGRect(x: x, y: topY - ledHeight - 2.5, width: width, height: ledHeight)
+        if maxPeakDb >= DbAxis.clip {
+            context.fill(Path(roundedRect: lamp.insetBy(dx: -4, dy: -3), cornerRadius: 4),
+                         with: .color(Self.red.opacity(0.12)))
+            context.fill(Path(roundedRect: lamp.insetBy(dx: -2, dy: -1.5), cornerRadius: 3),
+                         with: .color(Self.red.opacity(0.22)))
+            context.fill(Path(roundedRect: lamp, cornerRadius: 1.5), with: .color(Self.red))
+            context.fill(Path(roundedRect: lamp.insetBy(dx: width * 0.3, dy: 1), cornerRadius: 0.5),
+                         with: .color(.white.opacity(0.5)))
+        } else {
+            context.fill(Path(roundedRect: lamp, cornerRadius: 1.5), with: .color(Self.red.opacity(0.18)))
+        }
+
+        // Peak hold: the segment it sits on, lit bright.  Max peak: a red line.
+        if peakDb.isFinite && peakDb > dbFloor {
+            let y = axis.y(min(peakDb, dbMax), height: height)
+            context.fill(Path(CGRect(x: x, y: y - 1, width: width, height: 2)),
+                         with: .color(Self.color(atDb: peakDb)))
+            context.fill(Path(CGRect(x: x + width * 0.3, y: y - 1, width: width * 0.4, height: 2)),
+                         with: .color(.white.opacity(0.6)))
+        }
+        if maxPeakDb.isFinite && maxPeakDb > dbFloor && maxPeakDb < DbAxis.clip {
+            let y = axis.y(min(maxPeakDb, dbMax), height: height)
+            context.fill(Path(CGRect(x: x - 1.5, y: y - 0.5, width: width + 3, height: 1)),
+                         with: .color(Self.red.opacity(0.9)))
+        }
+    }
+
+    // MARK: - Colour
+
+    private static let green: (Double, Double, Double) = (0.30, 0.86, 0.28)
+    private static let amber: (Double, Double, Double) = (0.98, 0.80, 0.16)
+    private static let orange: (Double, Double, Double) = (1.00, 0.52, 0.10)
+    private static let redRGB: (Double, Double, Double) = (1.00, 0.18, 0.15)
+    private static let red = Color(red: redRGB.0, green: redRGB.1, blue: redRGB.2)
+
+    /// Warm green up to -18 dB, amber to -6, orange to -2, red above, blending
+    /// over a few dB at each change like light through a coloured lens.
+    private static let stops: [(db: Double, rgb: (Double, Double, Double))] = [
+        (-128, green), (-21, green), (-15, amber), (-8, amber),
+        (-5, orange), (-2.5, orange), (-1.5, redRGB), (6, redRGB),
+    ]
+
+    static func color(atDb db: Double) -> Color {
+        let value = db.isFinite ? db : -128
+        for (lower, upper) in zip(stops, stops.dropFirst()) where value <= upper.db {
+            let t = max(0, min(1, (value - lower.db) / (upper.db - lower.db)))
+            return Color(red: lower.rgb.0 + (upper.rgb.0 - lower.rgb.0) * t,
+                         green: lower.rgb.1 + (upper.rgb.1 - lower.rgb.1) * t,
+                         blue: lower.rgb.2 + (upper.rgb.2 - lower.rgb.2) * t)
+        }
+        return red
     }
 }

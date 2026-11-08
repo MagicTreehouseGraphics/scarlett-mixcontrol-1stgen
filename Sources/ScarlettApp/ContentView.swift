@@ -339,6 +339,7 @@ struct MixerPaneView: View {
                 fitFaders()
             }
             .environment(\.faderHeight, faderHeight)
+            .environment(\.pageSpareHeight, max(0, viewportHeight - contentHeight))
             .background(Theme.background)
         }
     }

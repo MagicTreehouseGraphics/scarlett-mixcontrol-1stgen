@@ -69,6 +69,13 @@ enum Theme {
     /// Card / panel background — the strip / section surfaces (~#222).
     static let panel = Color(white: 0.14)
 
+    /// The mixer panel under the mix tabs, and the selected tab that joins it
+    /// (~#1d1d1d: between the window and the strip cards).
+    static let tabPanel = Color(white: 0.115)
+
+    /// Outline of the mixer panel and the selected mix tab.
+    static let tabOutline = muteActive
+
     /// Slightly lifted surface — used for hover / focused / selected (~#2c2c2c).
     static let panelRaised = Color(white: 0.18)
 

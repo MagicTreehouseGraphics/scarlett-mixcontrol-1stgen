@@ -402,4 +402,59 @@ final class MixLinkTests: XCTestCase {
         XCTAssertEqual(s.mixerPans[4][0], -1)
         XCTAssertEqual(s.mixerPans[5][0], 1)
     }
+
+    // MARK: - Copying mixes
+
+    func testALinkedPairCopiesToEveryOtherPair() {
+        let s = makeState()
+        XCTAssertEqual(s.pairCopyTargets(fromPair: 0), [1, 2])
+        s.userSetMixPairLinked(1, linked: false)
+        XCTAssertEqual(s.pairCopyTargets(fromPair: 0), [1, 2])      // an unlinked target becomes linked
+        XCTAssertEqual(s.pairCopyTargets(fromPair: 1), [])           // an unlinked pair has no pair copy
+    }
+
+    func testAMonoMixCopiesOnlyToOtherMonoMixes() {
+        let s = makeState()
+        XCTAssertEqual(s.mixCopyTargets(fromBus: 0), [])             // linked: nothing
+        s.userSetMixPairLinked(0, linked: false)
+        XCTAssertEqual(s.mixCopyTargets(fromBus: 0), [1])            // only its partner
+        s.userSetMixPairLinked(2, linked: false)
+        XCTAssertEqual(s.mixCopyTargets(fromBus: 0), [1, 4, 5])      // pair 1 still linked
+        XCTAssertEqual(s.mixCopyTargets(fromBus: 5), [0, 1, 4])
+    }
+
+    func testCopyingAMonoMixCopiesEachChannelsLevelAndNothingElse() {
+        let s = makeState()
+        s.userSetMixPairLinked(0, linked: false)
+        s.userSetMixPairLinked(2, linked: false)
+        s.userSetMixerLevel(channel: 0, busIdx: 0, level: -8)
+        s.userSetMixerLevel(channel: 0, busIdx: 1, level: -3)
+        s.userSetMixerLevel(channel: 7, busIdx: 0, level: -20)
+
+        s.userCopyMix(from: 0, to: 5)
+
+        XCTAssertEqual(s.mixLevel(channel: 0, busIdx: 5), -8)
+        XCTAssertEqual(s.mixLevel(channel: 7, busIdx: 5), -20)
+        XCTAssertEqual(s.mixLevel(channel: 0, busIdx: 4), 0)        // its partner is untouched
+        XCTAssertEqual(s.mixLevel(channel: 0, busIdx: 0), -8)       // and so is the source
+        XCTAssertEqual(gains(s, channel: 0, pair: 2).1, -8)
+    }
+
+    func testCopyingAMonoMixWorksFromEitherSideAndWithinItsPair() {
+        let s = makeState()
+        s.userSetMixPairLinked(0, linked: false)
+        s.userSetMixerLevel(channel: 0, busIdx: 1, level: -3)
+        s.userCopyMix(from: 1, to: 0)
+        XCTAssertEqual(s.mixLevel(channel: 0, busIdx: 0), -3)
+    }
+
+    func testCopyingAMonoMixRefusesLinkedPairs() {
+        let s = makeState()
+        s.userSetMixPairLinked(0, linked: false)
+        s.userSetMixerLevel(channel: 0, busIdx: 0, level: -8)
+        s.userCopyMix(from: 0, to: 2)                                // pair 1 is linked
+        XCTAssertEqual(s.mixerLevels[0][1], 0)
+        s.userCopyMix(from: 2, to: 0)                                // and so can't be a source
+        XCTAssertEqual(s.mixLevel(channel: 0, busIdx: 0), -8)
+    }
 }

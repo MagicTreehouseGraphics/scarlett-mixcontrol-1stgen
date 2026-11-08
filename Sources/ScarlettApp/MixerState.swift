@@ -2117,6 +2117,35 @@ final class MixerState {
         logEvent(.info, "Copy", "Copied \(srcName) → \(dstName)")
     }
 
+    /// Pairs a linked (stereo) pair can be copied to: every other pair, which
+    /// then becomes a linked copy.  Empty for an unlinked pair.
+    func pairCopyTargets(fromPair pair: Int) -> [Int] {
+        guard (0..<stereoPairCount).contains(pair), isMixPairLinked(pair) else { return [] }
+        return (0..<stereoPairCount).filter { $0 != pair }
+    }
+
+    /// Mono mixes (bus indices) a mono mix can be copied to: the other buses of
+    /// unlinked pairs, including its own partner.  A linked pair can't take
+    /// one mono mix, so those buses are left out.
+    func mixCopyTargets(fromBus bus: Int) -> [Int] {
+        guard (0..<profile.mixBusCount).contains(bus), !isMixPairLinked(bus / 2) else { return [] }
+        return (0..<profile.mixBusCount).filter { $0 != bus && !isMixPairLinked($0 / 2) }
+    }
+
+    /// Replicate one mono mix onto another: for every channel, the source mix's
+    /// level becomes the destination's.
+    func userCopyMix(from sourceBus: Int, to destBus: Int) {
+        guard mixCopyTargets(fromBus: sourceBus).contains(destBus) else { return }
+        let destPair = destBus / 2
+        for ch in 0..<18 {
+            let level = mixLevel(channel: ch, busIdx: sourceBus)
+            if destBus % 2 == 0 { mixerLevels[ch][destPair] = level } else { mixerRightLevels[ch][destPair] = level }
+            pushCellGain(channel: ch, bus: matrixBuses[destBus])
+        }
+        saveMatrix()
+        logEvent(.info, "Copy", "Copied Mix M\(sourceBus + 1) → M\(destBus + 1)")
+    }
+
     // MARK: - Master section helpers
 
     func userToggleDim() {

@@ -3,9 +3,10 @@ import ScarlettCore
 
 /// The matrix mixer view — Control 2 style.
 ///
-/// Top bar: bus tabs (Mix M1..Mn), grouped in pairs with a link button
-/// between the two buses of each.
-/// Below: horizontally scrolling row of `ChannelStrip`s, one per matrix
+/// Top: mix tabs (M1..Mn) in the style of folder tabs, grouped in pairs with
+/// a link button between the two mixes of each.  The selected tab joins the
+/// panel below it, so it is clear which mix the strips belong to.
+/// In the panel: horizontally scrolling row of `ChannelStrip`s, one per matrix
 /// channel we expose.  We show at least 14 (the 8i6-era default), and expand
 /// to cover every physical input on devices that have more — the 18i6/18i8/
 /// 18i20 have 18 real inputs, so all 18 matrix slots are useful there.
@@ -25,8 +26,14 @@ struct MatrixMixerView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             header
-            busTabs
-            strips
+            VStack(spacing: 0) {
+                tabsRow
+                    .zIndex(1)
+                HStack(alignment: .top, spacing: 6) {
+                    mixPanel
+                    PinnedMasterStrip(state: state)
+                }
+            }
         }
         .confirmationDialog(
             relinkTitle, isPresented: Binding(
@@ -49,58 +56,128 @@ struct MatrixMixerView: View {
         return "Link M\(pair * 2 + 1) and M\(pair * 2 + 2)?"
     }
 
-    /// The two tabs of one mix pair and the link button between them.  Linked,
-    /// the three join into a single wide button that lights up as a whole;
-    /// unlinked, they are two separate tabs.
+    private let tabHeight: CGFloat = 32
+
+    /// The tab or tabs of one mix pair.  Linked, M-left, the link and M-right
+    /// are one wide tab; unlinked, they are two tabs with the link between.
+    @ViewBuilder
     private func mixPairTabs(_ pair: Int) -> some View {
         let left = state.matrixBuses[pair * 2]
         let right = state.matrixBuses[pair * 2 + 1]
-        let linked = state.isMixPairLinked(pair)
-        let pairSelected = state.selectedBus == left || state.selectedBus == right
-        return HStack(spacing: linked ? 0 : 3) {
-            busTab(left, highlighted: linked ? pairSelected : state.selectedBus == left,
-                   shape: linked ? .leading : .whole)
-            mixLinkButton(pair: pair, linked: linked, highlighted: linked && pairSelected)
-            busTab(right, highlighted: linked ? pairSelected : state.selectedBus == right,
-                   shape: linked ? .trailing : .whole)
+        Group {
+            if state.isMixPairLinked(pair) {
+                let selected = state.selectedBus == left || state.selectedBus == right
+                mixTab(selected: selected) {
+                    HStack(spacing: 0) {
+                        tabLabel(left, selected: selected)
+                        mixLinkButton(pair: pair, linked: true)
+                            .padding(.horizontal, 6)
+                        tabLabel(right, selected: selected)
+                        copyArrow(for: right, selected: selected)
+                    }
+                }
+            } else {
+                HStack(alignment: .bottom, spacing: 8) {
+                    monoTab(left)
+                    mixLinkButton(pair: pair, linked: false)
+                        .padding(.bottom, (tabHeight - 20) / 2)
+                    monoTab(right)
+                }
+            }
         }
-        .padding(.trailing, 8)
+        .padding(.trailing, 20)
     }
 
-    private enum TabShape { case whole, leading, trailing }
-
-    private func busTab(_ bus: MixBus, highlighted: Bool, shape: TabShape) -> some View {
-        let radius: CGFloat = 4
-        let corners: RectangleCornerRadii = switch shape {
-        case .whole: .init(topLeading: radius, bottomLeading: radius, bottomTrailing: radius, topTrailing: radius)
-        case .leading: .init(topLeading: radius, bottomLeading: radius, bottomTrailing: 0, topTrailing: 0)
-        case .trailing: .init(topLeading: 0, bottomLeading: 0, bottomTrailing: radius, topTrailing: radius)
+    private func monoTab(_ bus: MixBus) -> some View {
+        let selected = state.selectedBus == bus
+        return mixTab(selected: selected) {
+            HStack(spacing: 0) {
+                tabLabel(bus, selected: selected)
+                copyArrow(for: bus, selected: selected)
+            }
         }
-        return Button {
+    }
+
+    /// A folder tab around `content`.  Selected, it has the panel's fill and a
+    /// blue outline that opens into the panel's border; otherwise it is a
+    /// plain block resting on the panel's top edge.
+    private func mixTab<Content: View>(selected: Bool, @ViewBuilder content: () -> Content) -> some View {
+        let lineWidth: CGFloat = 1.5
+        return content()
+            .frame(height: tabHeight)
+            .background(FolderTabShape().fill(selected ? Theme.tabPanel : Theme.panelRaised))
+            .overlay {
+                if selected {
+                    FolderTabShape(inset: lineWidth / 2, overhang: lineWidth)
+                        .stroke(Theme.tabOutline, lineWidth: lineWidth)
+                }
+            }
+            .overlay(alignment: .bottom) {
+                // Hides the panel's top border under the tab.
+                if selected {
+                    Rectangle()
+                        .fill(Theme.tabPanel)
+                        .frame(height: lineWidth * 2)
+                        .padding(.horizontal, lineWidth)
+                        .offset(y: lineWidth)
+                }
+            }
+            .zIndex(selected ? 1 : 0)
+    }
+
+    private func tabLabel(_ bus: MixBus, selected: Bool) -> some View {
+        Button {
             state.selectedBus = bus
         } label: {
             Text(bus.displayName)
                 .font(.system(size: 12, weight: .semibold))
-                .frame(width: 60, height: 28)
-                .background(highlighted ? Theme.muteActive : Theme.panelRaised)
-                .foregroundStyle(highlighted ? .white : Theme.textSecondary)
-                .clipShape(UnevenRoundedRectangle(cornerRadii: corners))
+                .foregroundStyle(selected ? Theme.textPrimary : Theme.textSecondary)
+                .frame(width: 60, height: tabHeight)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .contextMenu { copyMixMenuItems(targetBus: bus) }
+        .contextMenu { copyMixMenuItems(for: bus) }
     }
 
-    private func mixLinkButton(pair: Int, linked: Bool, highlighted: Bool) -> some View {
+    /// The copy dropdown's arrow, in its own roomy segment behind a thin
+    /// divider at the end of a tab.
+    private func copyArrow(for bus: MixBus, selected: Bool) -> some View {
+        HStack(spacing: 0) {
+            Color.clear.frame(width: 4, height: tabHeight)
+            Rectangle()
+                .fill(selected ? Theme.tabOutline.opacity(0.5) : Color.black.opacity(0.35))
+                .frame(width: 1, height: 18)
+            Menu {
+                copyMixMenuItems(for: bus)
+            } label: {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(selected ? Theme.textPrimary : Theme.textSecondary)
+                    .frame(width: 32, height: tabHeight)
+                    .contentShape(Rectangle())
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("Copy this mix to another")
+        }
+    }
+
+    /// The button between a pair's two mixes, inside the wide tab when linked
+    /// and between the two tabs when not.  Lit blue while linked, like the
+    /// link button between two channels.
+    private func mixLinkButton(pair: Int, linked: Bool) -> some View {
         let name = "M\(pair * 2 + 1) and M\(pair * 2 + 2)"
         return Button {
             toggleMixLink(pair)
         } label: {
             Image(systemName: "link")
                 .font(.system(size: 10, weight: .semibold))
-                .frame(width: linked ? 22 : 20, height: linked ? 28 : 22)
-                .background(highlighted ? Theme.muteActive : Theme.panelRaised)
-                .foregroundStyle(highlighted ? .white : Theme.textSecondary.opacity(linked ? 1 : 0.55))
-                .clipShape(RoundedRectangle(cornerRadius: linked ? 0 : 3))
+                .foregroundStyle(linked ? Color.white : Theme.textSecondary)
+                .frame(width: 24, height: 20)
+                .background(linked ? Theme.muteActive : Theme.panelRaised)
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .help(linked
@@ -120,22 +197,24 @@ struct MatrixMixerView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .firstTextBaseline) {
+        HStack(alignment: .center) {
             Text("Mixer").font(.title3).bold().foregroundStyle(Theme.textPrimary)
             Spacer()
-            Text("Linked mixes (the pair joined by a chain icon) are one stereo mix with pan. Click the link to split them into two mono mixes. Use the strips' source pickers to wire signals in.")
-                .font(.caption).foregroundStyle(Theme.textSecondary)
-                .multilineTextAlignment(.trailing)
-                .frame(maxWidth: 380)
+            toolbar
         }
     }
 
-    private var busTabs: some View {
-        HStack(spacing: 4) {
+    private var tabsRow: some View {
+        HStack(alignment: .bottom, spacing: 0) {
             ForEach(0..<state.stereoPairCount, id: \.self) { pair in
                 mixPairTabs(pair)
             }
-            Spacer()
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var toolbar: some View {
+        HStack(spacing: 6) {
             FeedbackButton(action: { state.clearMaxPeaks(); return true }) { phase in
                 FeedbackPill(phase: phase, icon: "arrow.counterclockwise",
                              title: "Clear peaks", doneTitle: "Cleared")
@@ -199,16 +278,30 @@ struct MatrixMixerView: View {
         .fixedSize()
     }
 
-    /// Context-menu items for a bus tab — copy this pair's settings to
-    /// another pair.  Right-click any bus tab to access.
+    /// The copy options for a bus tab, in its dropdown and right-click menu.  A
+    /// linked pair copies to other pairs; a mono mix copies to other mono mixes.
     @ViewBuilder
-    private func copyMixMenuItems(targetBus: MixBus) -> some View {
-        let sourcePair = targetBus.stereoPairIndex ?? 0
-        let pairLabel: (Int) -> String = { p in "M\(p*2 + 1)+M\(p*2 + 2)" }
-        ForEach(0..<state.stereoPairCount, id: \.self) { dest in
-            if dest != sourcePair {
-                Button("Copy \(pairLabel(sourcePair)) → \(pairLabel(dest))") {
-                    state.userCopyMixPair(from: sourcePair, to: dest)
+    private func copyMixMenuItems(for bus: MixBus) -> some View {
+        let busIdx = bus.matrixIndex ?? 0
+        let pair = busIdx / 2
+        let pairLabel: (Int) -> String = { "M\($0 * 2 + 1)+M\($0 * 2 + 2)" }
+        if state.isMixPairLinked(pair) {
+            Section("Copy \(pairLabel(pair)) to") {
+                ForEach(state.pairCopyTargets(fromPair: pair), id: \.self) { dest in
+                    Button(pairLabel(dest)) { state.userCopyMixPair(from: pair, to: dest) }
+                }
+            }
+        } else {
+            let targets = state.mixCopyTargets(fromBus: busIdx)
+            Section("Copy \(bus.displayName) to") {
+                if targets.isEmpty {
+                    Text("No other mono mixes")
+                }
+                ForEach(targets, id: \.self) { dest in
+                    Button(state.matrixBuses[dest].displayName) { state.userCopyMix(from: busIdx, to: dest) }
+                }
+                if (0..<state.stereoPairCount).contains(where: { state.isMixPairLinked($0) }) {
+                    Text("Linked pairs can't take a single mix")
                 }
             }
         }
@@ -233,8 +326,12 @@ struct MatrixMixerView: View {
         }
     }
 
-    private var strips: some View {
-        HStack(alignment: .top, spacing: 6) {
+    /// The panel under the tabs: the channel strips and the DAW return, which
+    /// belong to the selected mix.  The output strips beside it belong to all.
+    private var mixPanel: some View {
+        let shape = UnevenRoundedRectangle(topLeadingRadius: 0, bottomLeadingRadius: 6,
+                                           bottomTrailingRadius: 6, topTrailingRadius: 6)
+        return HStack(alignment: .top, spacing: 6) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
                     ForEach(Array(stride(from: visibleChannels.lowerBound,
@@ -247,7 +344,9 @@ struct MatrixMixerView: View {
             if state.hasPinnedDawReturn {
                 PinnedDawStrip(state: state)
             }
-            PinnedMasterStrip(state: state)
         }
+        .padding(10)
+        .background { shape.fill(Theme.tabPanel) }
+        .overlay { shape.strokeBorder(Theme.tabOutline, lineWidth: 1.5) }
     }
 }

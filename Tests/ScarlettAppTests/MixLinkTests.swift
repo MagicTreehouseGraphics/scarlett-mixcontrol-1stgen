@@ -219,4 +219,141 @@ final class MixLinkTests: XCTestCase {
         XCTAssertNil(decoded.unlinkedMixes)
         XCTAssertNil(decoded.mixerRightLevels)
     }
+
+    // MARK: - Stereo source pairs
+
+    func testLinkingFeedsAnEmptyRightChannelFromTheLeftsPartner() {
+        let s = makeState()
+        s.userSetMixerSource(channel: 4, source: .analog1)
+        s.userToggleLink(channel: 4)
+        XCTAssertEqual(s.mixerSources[5], .analog2)
+    }
+
+    func testLinkingKeepsARightChannelThatAlreadyHasASource() {
+        let s = makeState()
+        s.userSetMixerSource(channel: 4, source: .analog1)
+        s.userSetMixerSource(channel: 5, source: .spdif1)
+        s.userToggleLink(channel: 4)
+        XCTAssertEqual(s.mixerSources[5], .spdif1)
+        XCTAssertEqual(s.stereoSourceChoice(leftChannel: 4), .custom(.analog1, .spdif1))
+    }
+
+    func testLinkingDoesNotTakeThePartnerFromAnotherChannel() {
+        let s = makeState()
+        s.userSetMixerSource(channel: 8, source: .analog2)
+        s.userSetMixerSource(channel: 4, source: .analog1)
+        s.userToggleLink(channel: 4)
+        XCTAssertEqual(s.mixerSources[5], .off)
+        XCTAssertEqual(s.mixerSources[8], .analog2)
+    }
+
+    func testPickingAStereoSourceFeedsBothChannels() {
+        let s = makeState()
+        s.userToggleLink(channel: 4)
+        s.userSetStereoSource(leftChannel: 4, to: .pair(StereoSourcePair(left: .analog3, right: .analog4)))
+        XCTAssertEqual(s.mixerSources[4], .analog3)
+        XCTAssertEqual(s.mixerSources[5], .analog4)
+        XCTAssertEqual(s.stereoSourceChoice(leftChannel: 4).name, "Analog 3+4")
+
+        s.userSetStereoSource(leftChannel: 4, to: .off)
+        XCTAssertEqual(s.mixerSources[4], .off)
+        XCTAssertEqual(s.mixerSources[5], .off)
+        XCTAssertEqual(s.stereoSourceChoice(leftChannel: 4), .off)
+    }
+
+    func testPickingAStereoSourceTakesItFromAnyOtherChannel() {
+        let s = makeState()
+        s.userSetMixerSource(channel: 9, source: .analog4)
+        s.userToggleLink(channel: 4)
+        s.userSetStereoSource(leftChannel: 4, to: .pair(StereoSourcePair(left: .analog3, right: .analog4)))
+        XCTAssertEqual(s.mixerSources[9], .off)
+        XCTAssertEqual(s.mixerSources[5], .analog4)
+    }
+
+    func testStereoSourceOptionsAreOffPlusWholePairs() {
+        let options = makeState().stereoSourceOptions
+        XCTAssertEqual(options.first, .off)
+        XCTAssertTrue(options.dropFirst().allSatisfy {
+            if case .pair(let p) = $0 { return p.left.stereoRightPartner == p.right }
+            return false
+        })
+        XCTAssertTrue(options.contains(.pair(StereoSourcePair(left: .analog1, right: .analog2))))
+    }
+
+    // MARK: - Stereo balance
+
+    func testStereoPairStartsCenteredAndTheFaderMovesBothChannels() {
+        let s = makeState()
+        s.userToggleLink(channel: 4)
+        XCTAssertEqual(s.stereoBalance(leftChannel: 4, pair: 0), 0)
+        s.userSetMixerLevel(channel: 4, busIdx: 0, level: -6)
+        XCTAssertEqual(s.mixerLevels[4][0], -6)
+        XCTAssertEqual(s.mixerLevels[5][0], -6)
+        XCTAssertEqual(gains(s, channel: 4, pair: 0).0, -6)
+        XCTAssertEqual(gains(s, channel: 5, pair: 0).1, -6)
+    }
+
+    func testBalanceTurnsDownTheFarChannelAndKeepsTheFader() {
+        let s = makeState()
+        s.userToggleLink(channel: 4)
+        s.userSetMixerLevel(channel: 4, busIdx: 0, level: -6)
+
+        s.userSetStereoBalance(leftChannel: 4, pair: 0, balance: 0.5)
+
+        XCTAssertEqual(s.mixLevel(channel: 4, busIdx: 0), -6, accuracy: 1e-6)
+        XCTAssertEqual(s.mixLevel(channel: 5, busIdx: 0), -6, accuracy: 1e-6)
+        XCTAssertEqual(gains(s, channel: 4, pair: 0).0, -6 + 20 * log10(0.5), accuracy: 1e-6)
+        XCTAssertEqual(gains(s, channel: 5, pair: 0).1, -6, accuracy: 1e-6)
+        XCTAssertEqual(s.stereoBalance(leftChannel: 4, pair: 0), 0.5, accuracy: 1e-6)
+
+        s.userSetStereoBalance(leftChannel: 4, pair: 0, balance: -0.5)
+        XCTAssertEqual(gains(s, channel: 4, pair: 0).0, -6, accuracy: 1e-6)
+        XCTAssertEqual(gains(s, channel: 5, pair: 0).1, -6 + 20 * log10(0.5), accuracy: 1e-6)
+    }
+
+    func testMovingTheFaderKeepsTheBalance() {
+        let s = makeState()
+        s.userToggleLink(channel: 4)
+        s.userSetStereoBalance(leftChannel: 4, pair: 0, balance: 0.5)
+        s.userSetMixerLevel(channel: 4, busIdx: 0, level: -10)
+        XCTAssertEqual(s.stereoBalance(leftChannel: 4, pair: 0), 0.5, accuracy: 1e-6)
+        XCTAssertEqual(s.mixLevel(channel: 4, busIdx: 0), -10, accuracy: 1e-6)
+        XCTAssertEqual(gains(s, channel: 5, pair: 0).1, -10, accuracy: 1e-6)
+    }
+
+    func testBalanceIsPerMixPair() {
+        let s = makeState()
+        s.userToggleLink(channel: 4)
+        s.userSetStereoBalance(leftChannel: 4, pair: 0, balance: 1)
+        XCTAssertEqual(s.stereoBalance(leftChannel: 4, pair: 1), 0)
+        XCTAssertEqual(gains(s, channel: 4, pair: 0).0, MixGain.floorDb)
+    }
+
+    func testBalanceSnapsToCenterNearZero() {
+        let s = makeState()
+        s.userToggleLink(channel: 4)
+        s.userSetStereoBalance(leftChannel: 4, pair: 0, balance: 0.03)
+        XCTAssertEqual(s.stereoBalance(leftChannel: 4, pair: 0), 0)
+    }
+
+    func testBalanceDoesNothingWithoutAStereoLinkOrOnMonoMixes() {
+        let s = makeState()
+        s.userSetStereoBalance(leftChannel: 4, pair: 0, balance: 1)           // channels not linked
+        XCTAssertEqual(s.mixerLevels[4][0], 0)
+
+        s.userToggleLink(channel: 4)
+        s.userSetMixPairLinked(0, linked: false)
+        s.userSetStereoBalance(leftChannel: 4, pair: 0, balance: 1)           // mono mixes
+        XCTAssertEqual(s.mixLevel(channel: 4, busIdx: 0), s.mixLevel(channel: 5, busIdx: 0))
+        XCTAssertEqual(s.mixLevel(channel: 4, busIdx: 1), s.mixLevel(channel: 5, busIdx: 1))
+    }
+
+    func testChannelsLinkedAtDifferentLevelsShowTheirRealBalance() {
+        let s = makeState()
+        s.userSetMixerLevel(channel: 4, busIdx: 0, level: -3)
+        s.userSetMixerLevel(channel: 5, busIdx: 0, level: -9)
+        s.userToggleLink(channel: 4)
+        XCTAssertLessThan(s.stereoBalance(leftChannel: 4, pair: 0), 0)       // right is quieter
+        XCTAssertEqual(s.mixLevel(channel: 4, busIdx: 0), -3, accuracy: 1e-6)
+    }
 }

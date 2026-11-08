@@ -4,6 +4,10 @@ import ScarlettCore
 /// A vertical mixer strip for one matrix channel in the currently selected bus.
 /// Layout mirrors Focusrite Control 2: name + source + colored underline at top,
 /// fader with dB scale and meter in the middle, M/S buttons at the bottom.
+///
+/// For a stereo-linked pair, `channel` is the left channel and the strip is
+/// one wide card for both: one name, source, fader and mute/solo, two meters,
+/// and the link button between mute and solo.
 @MainActor
 struct ChannelStrip: View {
     let channel: Int
@@ -13,6 +17,11 @@ struct ChannelStrip: View {
     @State private var nameDraft: String = ""
     @FocusState private var nameFocused: Bool
 
+    private var stereo: Bool { channel % 2 == 0 && state.isLinked(channel) }
+    private var rightSource: SignalSource {
+        channel + 1 < state.mixerSources.count ? state.mixerSources[channel + 1] : .off
+    }
+
     var body: some View {
         let source = state.mixerSources[channel]
         let isMuted = state.mixerMutes[channel]
@@ -20,11 +29,23 @@ struct ChannelStrip: View {
 
         VStack(spacing: StripLayout.vSpacing) {
             header(source: source)
-            inputSwitch(source: source)
-                .frame(height: StripLayout.switchRowHeight)
-            // Pan only exists for a linked (stereo) mix pair; the row stays
-            // so the faders don't shift between tabs.
-            panSlider
+            Group {
+                if stereo {
+                    HStack(spacing: 4) {
+                        inputSwitch(source: source).frame(maxWidth: .infinity)
+                        inputSwitch(source: rightSource).frame(maxWidth: .infinity)
+                    }
+                } else {
+                    inputSwitch(source: source)
+                }
+            }
+            .frame(height: StripLayout.switchRowHeight)
+            // Pan (balance, on a stereo-linked pair) only exists for a linked
+            // (stereo) mix pair.  The row stays so the faders don't shift
+            // between tabs.
+            Group {
+                if stereo { balanceSlider } else { panSlider }
+            }
                 .frame(height: StripLayout.panRowHeight)
                 .opacity(panApplies ? 1 : 0)
                 .allowsHitTesting(panApplies)
@@ -35,16 +56,11 @@ struct ChannelStrip: View {
             mutesolo(isMuted: isMuted, isSoloed: isSoloed)
                 .frame(height: StripLayout.controlsHeight)
         }
-        .frame(width: StripLayout.width)
+        .frame(width: stereo ? StripLayout.stereoWidth : StripLayout.width)
         .padding(.vertical, StripLayout.cardPaddingV)
         .padding(.horizontal, 6)
         .background(Theme.panel)
         .clipShape(RoundedRectangle(cornerRadius: 6))
-        .overlay(
-            // Subtle border to make linked pairs visually obvious.
-            RoundedRectangle(cornerRadius: 6)
-                .strokeBorder(state.isLinked(channel) ? Theme.muteActive.opacity(0.45) : .clear, lineWidth: 1)
-        )
     }
 
     // MARK: - Contextual hardware-input switch
@@ -91,14 +107,18 @@ struct ChannelStrip: View {
         VStack(spacing: 3) {
             nameField
             Spacer(minLength: 0)
-            ThemedMenuPicker(
-                options: state.matrixSourceOptions,
-                displayName: { $0.displayName },
-                selection: Binding(
-                    get: { state.mixerSources[channel] },
-                    set: { state.userSetMixerSource(channel: channel, source: $0) }
+            if stereo {
+                stereoSourcePicker
+            } else {
+                ThemedMenuPicker(
+                    options: state.matrixSourceOptions,
+                    displayName: { $0.displayName },
+                    selection: Binding(
+                        get: { state.mixerSources[channel] },
+                        set: { state.userSetMixerSource(channel: channel, source: $0) }
+                    )
                 )
-            )
+            }
 
             Rectangle()
                 .fill(source.accentColor)
@@ -109,10 +129,26 @@ struct ChannelStrip: View {
         .frame(height: StripLayout.headerHeight, alignment: .bottom)
     }
 
-    /// Channel name — defaults to "Ch N", double-click to rename.
+    private var stereoSourcePicker: some View {
+        let choice = state.stereoSourceChoice(leftChannel: channel)
+        var options = state.stereoSourceOptions
+        if !options.contains(choice) { options.insert(choice, at: 0) }
+        return ThemedMenuPicker(
+            options: options,
+            displayName: { $0.name },
+            selection: Binding(
+                get: { choice },
+                set: { state.userSetStereoSource(leftChannel: channel, to: $0) }
+            )
+        )
+    }
+
+    /// Channel name — defaults to "Ch N" ("Ch N+M" for a stereo pair),
+    /// double-click to rename.
     private var nameField: some View {
         let stored = state.mixerNames[channel]
-        let displayed = stored.isEmpty ? "Ch \(channel + 1)" : stored
+        let fallback = stereo ? "Ch \(channel + 1)+\(channel + 2)" : "Ch \(channel + 1)"
+        let displayed = stored.isEmpty ? fallback : stored
         return Group {
             if editingName {
                 TextField("Name", text: $nameDraft)
@@ -173,10 +209,25 @@ struct ChannelStrip: View {
             // outer strip body so 20 Hz meter updates only re-render this
             // small view, not the whole strip (faders, pickers, buttons, …).
             StripMeter(state: state, source: source, profile: state.profile)
+                .overlay(alignment: .bottom) { if stereo { meterCaption("L") } }
+            if stereo {
+                StripMeter(state: state, source: rightSource, profile: state.profile)
+                    .overlay(alignment: .bottom) { meterCaption("R") }
+            }
 
             DbScale()
         }
         .frame(height: faderHeight)
+    }
+
+    /// The L/R captions hang below the meters without taking layout space,
+    /// so the meters stay on the shared dB axis.
+    private func meterCaption(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 8, design: .monospaced))
+            .foregroundStyle(Theme.textSecondary)
+            .fixedSize()
+            .offset(y: 4)
     }
 
     private var panApplies: Bool {
@@ -206,6 +257,31 @@ struct ChannelStrip: View {
         }
     }
 
+    /// Shifts a stereo pair's image left or right without changing its width.
+    private var balanceSlider: some View {
+        let pair = MixerState.pairIndex(of: state.selectedBus)
+        let balance = state.stereoBalance(leftChannel: channel, pair: pair)
+        return VStack(spacing: 1) {
+            Slider(
+                value: Binding(
+                    get: { balance },
+                    set: { state.userSetStereoBalance(leftChannel: channel, pair: pair, balance: $0) }
+                ),
+                in: -1...1
+            )
+            .controlSize(.mini)
+            .contextMenu {
+                Button("Reset balance to center") {
+                    state.userSetStereoBalance(leftChannel: channel, pair: pair, balance: 0)
+                }
+            }
+            Text(panLabel(balance))
+                .font(.system(size: 8, design: .monospaced))
+                .foregroundStyle(Theme.textSecondary)
+        }
+        .help("Balance: shifts this stereo pair left or right in the mix.")
+    }
+
     private func panLabel(_ pan: Double) -> String {
         if abs(pan) < 0.02 { return "C" }
         let pct = Int(round(abs(pan) * 100))
@@ -219,9 +295,16 @@ struct ChannelStrip: View {
             state: state,
             faderDb: state.mixLevel(channel: channel, busIdx: busIdx),
             faderMuted: state.mixerMutes[channel],
-            maxPeak: { StripMeter.level(from: $0.peaksMax, source: source, profile: $0.profile) },
-            resetHelp: "Click to reset this channel's max peak"
-        ) { state.clearMaxPeak(forSource: source) }
+            maxPeak: { [stereo, rightSource] s in
+                let left = StripMeter.level(from: s.peaksMax, source: source, profile: s.profile)
+                guard stereo else { return left }
+                return max(left, StripMeter.level(from: s.peaksMax, source: rightSource, profile: s.profile))
+            },
+            resetHelp: stereo ? "Click to reset this pair's max peaks" : "Click to reset this channel's max peak"
+        ) {
+            state.clearMaxPeak(forSource: source)
+            if stereo { state.clearMaxPeak(forSource: rightSource) }
+        }
     }
 
     // MARK: - Mute / Solo
@@ -232,11 +315,14 @@ struct ChannelStrip: View {
             StripButton(letter: "M", active: isMuted, activeColor: Theme.muteActive) {
                 state.userToggleMixerMute(channel: channel)
             }
+            // A stereo pair carries its link button between mute and solo; for
+            // two separate strips it sits in the gap between them instead
+            // (see `MatrixMixerView.channelStrips`).
+            if stereo {
+                LinkButton(active: true) { state.userToggleLink(channel: channel) }
+            }
             StripButton(letter: "S", active: isSoloed, activeColor: Theme.soloActive) {
                 state.userToggleMixerSolo(channel: channel)
-            }
-            LinkButton(active: state.isLinked(channel)) {
-                state.userToggleLink(channel: channel)
             }
             Spacer(minLength: 0)
         }
@@ -352,8 +438,8 @@ struct ReadoutCell: View {
     }
 }
 
-/// Small button shown on each strip — toggles whether this channel is in a
-/// linked stereo pair with its even/odd partner.  Active = paired.
+/// Link button between two neighbouring channels (1+2, 3+4, …) — toggles
+/// whether they are one stereo pair.  Active = paired.
 struct LinkButton: View {
     let active: Bool
     let action: () -> Void
@@ -368,8 +454,8 @@ struct LinkButton: View {
                 .clipShape(RoundedRectangle(cornerRadius: 3))
         }
         .buttonStyle(.plain)
-        .help(active ? "Linked stereo pair (click to unlink)" : "Link with adjacent channel")
-        .accessibilityLabel(active ? "Unlink stereo pair" : "Link with adjacent channel")
+        .help(active ? "Stereo pair (click to split into two channels)" : "Link these two channels as a stereo pair")
+        .accessibilityLabel(active ? "Split stereo pair" : "Link as stereo pair")
     }
 }
 

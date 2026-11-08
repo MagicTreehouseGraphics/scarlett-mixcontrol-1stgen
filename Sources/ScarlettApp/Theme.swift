@@ -20,6 +20,9 @@ enum AppInfo {
 /// line up regardless of what content the section actually shows.
 enum StripLayout {
     static let width:               CGFloat = 100
+    /// A stereo-linked pair's card: just wide enough to stand out from a
+    /// single strip and fit its two meters and side-by-side input switches.
+    static let stereoWidth:         CGFloat = width + 36
     static let headerHeight:        CGFloat = 50
     static let switchRowHeight:     CGFloat = 22
     static let panRowHeight:        CGFloat = 30

@@ -214,12 +214,32 @@ struct MatrixMixerView: View {
         }
     }
 
+    /// Channels `left` and `left + 1`: one wide stereo strip when linked,
+    /// otherwise two strips with the link button between them.
+    @ViewBuilder
+    private func channelStrips(startingAt left: Int) -> some View {
+        if left + 1 >= visibleChannels.upperBound || state.isLinked(left) {
+            ChannelStrip(channel: left, state: state)
+        } else {
+            HStack(spacing: 6) {
+                ChannelStrip(channel: left, state: state)
+                ChannelStrip(channel: left + 1, state: state)
+            }
+            .overlay(alignment: .bottom) {
+                // Level with the strips' mute/solo row.
+                LinkButton(active: false) { state.userToggleLink(channel: left) }
+                    .padding(.bottom, StripLayout.cardPaddingV)
+            }
+        }
+    }
+
     private var strips: some View {
         HStack(alignment: .top, spacing: 6) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
-                    ForEach(visibleChannels, id: \.self) { ch in
-                        ChannelStrip(channel: ch, state: state)
+                    ForEach(Array(stride(from: visibleChannels.lowerBound,
+                                         to: visibleChannels.upperBound, by: 2)), id: \.self) { left in
+                        channelStrips(startingAt: left)
                     }
                 }
                 .padding(.vertical, StripLayout.pinnedOutset)

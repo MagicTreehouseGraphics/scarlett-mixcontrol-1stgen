@@ -15,6 +15,25 @@ public enum ConnectionState: Equatable {
     case unsupported(DeviceProfile)       // Found a Focusrite this build can't drive yet
 }
 
+/// What a stereo-linked channel pair is fed from, as the strip's picker shows it.
+enum StereoSourceChoice: Hashable, Identifiable {
+    case off
+    case pair(StereoSourcePair)
+    /// Two sources that aren't a natural pair (e.g. Analog 1 + DAW 5), kept
+    /// as the user set them; shown but not offered as a choice.
+    case custom(SignalSource, SignalSource)
+
+    var id: Self { self }
+
+    var name: String {
+        switch self {
+        case .off: return "Off"
+        case .pair(let pair): return pair.name
+        case .custom(let l, let r): return "\(l.displayName) / \(r.displayName)"
+        }
+    }
+}
+
 // View model holding the live device handle, the latest peak meter reading,
 // and the user's current slider/toggle positions. Writes to the device are
 // only sent when the user changes a value — the model never tries to
@@ -1197,6 +1216,49 @@ final class MixerState {
         writeAsync { try? dev.setMixerSource(channel: channel, source: source) }
     }
 
+    /// Choices for a stereo-linked channel pair's source picker: Off and every
+    /// stereo pair of sources this device offers.
+    var stereoSourceOptions: [StereoSourceChoice] {
+        [.off] + SignalSource.stereoPairs(in: matrixSourceOptions).map { .pair($0) }
+    }
+
+    /// What the stereo-linked pair starting at `leftChannel` is fed from.
+    func stereoSourceChoice(leftChannel left: Int) -> StereoSourceChoice {
+        guard (0..<17).contains(left) else { return .off }
+        let l = mixerSources[left], r = mixerSources[left + 1]
+        if l == .off && r == .off { return .off }
+        if l.stereoRightPartner == r {
+            return .pair(StereoSourcePair(left: l, right: r))
+        }
+        return .custom(l, r)
+    }
+
+    /// Feed both channels of a stereo-linked pair from one stereo source.
+    func userSetStereoSource(leftChannel left: Int, to choice: StereoSourceChoice) {
+        guard (0..<17).contains(left) else { return }
+        switch choice {
+        case .off:
+            userSetMixerSource(channel: left, source: .off)
+            userSetMixerSource(channel: left + 1, source: .off)
+        case .pair(let pair):
+            userSetMixerSource(channel: left, source: pair.left)
+            userSetMixerSource(channel: left + 1, source: pair.right)
+        case .custom:
+            break
+        }
+    }
+
+    /// When two channels are linked and the right one is empty, feed it from
+    /// the left source's stereo partner (DAW 1 → DAW 2), unless another
+    /// channel already uses that source.
+    private func fillStereoPartnerSource(leftChannel left: Int) {
+        guard mixerSources[left + 1] == .off,
+              let partner = mixerSources[left].stereoRightPartner,
+              matrixSourceOptions.contains(partner),
+              !mixerSources.contains(partner) else { return }
+        userSetMixerSource(channel: left + 1, source: partner)
+    }
+
     // MARK: - Pinned DAW return
     //
     // Matrix channels 14 & 15 are reserved as the "DAW return" controlled by
@@ -1286,6 +1348,7 @@ final class MixerState {
         let linking = !linkedPairs.contains(left)
         if linking {
             linkedPairs.insert(left)
+            fillStereoPartnerSource(leftChannel: left)
         } else {
             linkedPairs.remove(left)
         }
@@ -1301,20 +1364,34 @@ final class MixerState {
     func isMixPairLinked(_ pair: Int) -> Bool { !unlinkedMixPairs.contains(pair) }
 
     /// The fader value to show for a channel on one mix bus.  In a linked
-    /// pair both buses read the pair's level; unlinked, each has its own.
+    /// pair both buses read the pair's level; unlinked, each has its own.  A
+    /// stereo-linked channel pair in a linked mix pair shares one fader, at
+    /// the louder channel's level, since balance turns the other one down.
     func mixLevel(channel: Int, busIdx: Int) -> Double {
         let pair = busIdx / 2
-        if isMixPairLinked(pair) || busIdx % 2 == 0 { return mixerLevels[channel][pair] }
-        return mixerRightLevels[channel][pair]
+        if isMixPairLinked(pair) {
+            if let partner = linkedPartner(channel) {
+                return max(mixerLevels[channel][pair], mixerLevels[partner][pair])
+            }
+            return mixerLevels[channel][pair]
+        }
+        return busIdx % 2 == 0 ? mixerLevels[channel][pair] : mixerRightLevels[channel][pair]
     }
 
     /// Set a channel's fader on one mix bus.  In a linked pair that sets the
     /// pair's level and pushes both of its cells; in an unlinked pair only
     /// this bus changes.  If the channel is in a linked stereo pair, the
-    /// partner's level for the same bus moves with it.
+    /// partner follows: in a linked mix pair keeping the pair's balance, in
+    /// an unlinked one at the same level.
     func userSetMixerLevel(channel: Int, busIdx: Int, level: Double) {
         guard (0..<18).contains(channel), (0..<profile.mixBusCount).contains(busIdx) else { return }
         let pair = busIdx / 2
+        if isMixPairLinked(pair), linkedPartner(channel) != nil {
+            let left = channel - channel % 2
+            applyStereoLevels(leftChannel: left, pair: pair, level: level,
+                              balance: stereoBalance(leftChannel: left, pair: pair))
+            return
+        }
         for ch in [channel] + (linkedPartner(channel).map { [$0] } ?? []) {
             if isMixPairLinked(pair) {
                 mixerLevels[ch][pair] = level
@@ -1324,6 +1401,34 @@ final class MixerState {
                 pushCellGain(channel: ch, bus: matrixBuses[busIdx])
             }
         }
+        saveMatrix()
+    }
+
+    /// Balance of a stereo-linked channel pair in a linked mix pair, -1 (left
+    /// only) … +1 (right only).  Not stored: it is how far the right channel's
+    /// level sits from the left's, since each channel goes to one side.
+    func stereoBalance(leftChannel left: Int, pair: Int) -> Double {
+        guard (0..<17).contains(left), (0..<stereoPairCount).contains(pair) else { return 0 }
+        return MixGain.deriveLevelAndPan(left: mixerLevels[left][pair],
+                                         right: mixerLevels[left + 1][pair]).pan
+    }
+
+    /// Shift a stereo-linked pair's image left or right on one mix pair,
+    /// keeping its fader.  Snaps to center within ±0.04.
+    func userSetStereoBalance(leftChannel left: Int, pair: Int, balance: Double) {
+        guard (0..<17).contains(left), left.isMultiple(of: 2), isLinked(left),
+              (0..<stereoPairCount).contains(pair), isMixPairLinked(pair) else { return }
+        let snapped = abs(balance) < 0.04 ? 0 : max(-1, min(1, balance))
+        applyStereoLevels(leftChannel: left, pair: pair,
+                          level: mixLevel(channel: left, busIdx: pair * 2), balance: snapped)
+    }
+
+    private func applyStereoLevels(leftChannel left: Int, pair: Int, level: Double, balance: Double) {
+        let split = MixGain.unlinkedLevels(level: level, pan: balance)
+        mixerLevels[left][pair] = split.left
+        mixerLevels[left + 1][pair] = split.right
+        pushBusPair(channel: left, pair: pair)
+        pushBusPair(channel: left + 1, pair: pair)
         saveMatrix()
     }
 

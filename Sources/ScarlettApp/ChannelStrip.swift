@@ -40,11 +40,11 @@ struct ChannelStrip: View {
                 }
             }
             .frame(height: StripLayout.switchRowHeight)
-            // Pan (balance, on a stereo-linked pair) only exists for a linked
+            // Pan (and width, on a stereo-linked pair) only exists for a linked
             // (stereo) mix pair.  The row stays so the faders don't shift
             // between tabs.
             Group {
-                if stereo { balanceSlider } else { panSlider }
+                if stereo { stereoImageControls } else { panSlider }
             }
                 .frame(height: StripLayout.panRowHeight)
                 .opacity(panApplies ? 1 : 0)
@@ -257,29 +257,46 @@ struct ChannelStrip: View {
         }
     }
 
-    /// Shifts a stereo pair's image left or right without changing its width.
-    private var balanceSlider: some View {
+    /// Pan and width for a stereo pair: pan moves the whole image across the
+    /// mix, width narrows it toward mono.
+    private var stereoImageControls: some View {
         let pair = MixerState.pairIndex(of: state.selectedBus)
-        let balance = state.stereoBalance(leftChannel: channel, pair: pair)
-        return VStack(spacing: 1) {
-            Slider(
+        let image = state.stereoPanWidth(leftChannel: channel, pair: pair)
+        return VStack(spacing: 0) {
+            imageSlider(
                 value: Binding(
-                    get: { balance },
-                    set: { state.userSetStereoBalance(leftChannel: channel, pair: pair, balance: $0) }
-                ),
-                in: -1...1
-            )
-            .controlSize(.mini)
-            .contextMenu {
-                Button("Reset balance to center") {
-                    state.userSetStereoBalance(leftChannel: channel, pair: pair, balance: 0)
-                }
-            }
-            Text(panLabel(balance))
+                    get: { image.pan },
+                    set: { state.userSetStereoPan(leftChannel: channel, pair: pair, pan: $0) }),
+                range: -1...1, label: "Pan \(panLabel(image.pan))",
+                help: "Pan: moves this stereo pair across the mix. At the far end both channels play on that side.",
+                reset: { state.userSetStereoPan(leftChannel: channel, pair: pair, pan: 0) },
+                resetTitle: "Reset pan to center")
+            imageSlider(
+                value: Binding(
+                    get: { image.width },
+                    set: { state.userSetStereoWidth(leftChannel: channel, pair: pair, width: $0) }),
+                range: 0...1, label: "Wid \(Int((image.width * 100).rounded()))",
+                help: "Width: 100 is full stereo, 0 is mono. It has no effect with the pair panned fully to one side.",
+                reset: { state.userSetStereoWidth(leftChannel: channel, pair: pair, width: 1) },
+                resetTitle: "Reset width to 100")
+                .disabled(abs(image.pan) > 0.999)
+        }
+    }
+
+    private func imageSlider(value: Binding<Double>, range: ClosedRange<Double>, label: String,
+                             help: String, reset: @escaping () -> Void, resetTitle: String) -> some View {
+        HStack(spacing: 3) {
+            Slider(value: value, in: range)
+                .controlSize(.mini)
+                .contextMenu { Button(resetTitle, action: reset) }
+            Text(label)
                 .font(.system(size: 8, design: .monospaced))
                 .foregroundStyle(Theme.textSecondary)
+                .lineLimit(1)
+                .frame(width: 44, alignment: .leading)
         }
-        .help("Balance: shifts this stereo pair left or right in the mix.")
+        .frame(height: StripLayout.panRowHeight / 2)
+        .help(help)
     }
 
     private func panLabel(_ pan: Double) -> String {

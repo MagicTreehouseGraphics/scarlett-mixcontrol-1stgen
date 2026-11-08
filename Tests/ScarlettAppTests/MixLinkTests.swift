@@ -280,80 +280,126 @@ final class MixLinkTests: XCTestCase {
         XCTAssertTrue(options.contains(.pair(StereoSourcePair(left: .analog1, right: .analog2))))
     }
 
-    // MARK: - Stereo balance
+    // MARK: - Stereo pan and width
 
-    func testStereoPairStartsCenteredAndTheFaderMovesBothChannels() {
+    func testStereoPairStartsHardLeftAndRightWithOneFader() {
         let s = makeState()
         s.userToggleLink(channel: 4)
-        XCTAssertEqual(s.stereoBalance(leftChannel: 4, pair: 0), 0)
+        let image = s.stereoPanWidth(leftChannel: 4, pair: 0)
+        XCTAssertEqual(image.pan, 0, accuracy: 1e-9)
+        XCTAssertEqual(image.width, 1, accuracy: 1e-9)
+
         s.userSetMixerLevel(channel: 4, busIdx: 0, level: -6)
         XCTAssertEqual(s.mixerLevels[4][0], -6)
         XCTAssertEqual(s.mixerLevels[5][0], -6)
         XCTAssertEqual(gains(s, channel: 4, pair: 0).0, -6)
+        XCTAssertEqual(gains(s, channel: 4, pair: 0).1, MixGain.floorDb)
         XCTAssertEqual(gains(s, channel: 5, pair: 0).1, -6)
     }
 
-    func testBalanceTurnsDownTheFarChannelAndKeepsTheFader() {
+    func testPanningRightMovesTheLeftChannelOverAndAddsItToTheRightSide() {
         let s = makeState()
         s.userToggleLink(channel: 4)
         s.userSetMixerLevel(channel: 4, busIdx: 0, level: -6)
 
-        s.userSetStereoBalance(leftChannel: 4, pair: 0, balance: 0.5)
-
-        XCTAssertEqual(s.mixLevel(channel: 4, busIdx: 0), -6, accuracy: 1e-6)
-        XCTAssertEqual(s.mixLevel(channel: 5, busIdx: 0), -6, accuracy: 1e-6)
-        XCTAssertEqual(gains(s, channel: 4, pair: 0).0, -6 + 20 * log10(0.5), accuracy: 1e-6)
-        XCTAssertEqual(gains(s, channel: 5, pair: 0).1, -6, accuracy: 1e-6)
-        XCTAssertEqual(s.stereoBalance(leftChannel: 4, pair: 0), 0.5, accuracy: 1e-6)
-
-        s.userSetStereoBalance(leftChannel: 4, pair: 0, balance: -0.5)
+        s.userSetStereoPan(leftChannel: 4, pair: 0, pan: 0.5)
+        // Left channel now at center: on both sides.  Right channel stays hard right.
         XCTAssertEqual(gains(s, channel: 4, pair: 0).0, -6, accuracy: 1e-6)
-        XCTAssertEqual(gains(s, channel: 5, pair: 0).1, -6 + 20 * log10(0.5), accuracy: 1e-6)
-    }
+        XCTAssertEqual(gains(s, channel: 4, pair: 0).1, -6, accuracy: 1e-6)
+        XCTAssertEqual(gains(s, channel: 5, pair: 0).0, MixGain.floorDb)
+        XCTAssertEqual(gains(s, channel: 5, pair: 0).1, -6, accuracy: 1e-6)
 
-    func testMovingTheFaderKeepsTheBalance() {
-        let s = makeState()
-        s.userToggleLink(channel: 4)
-        s.userSetStereoBalance(leftChannel: 4, pair: 0, balance: 0.5)
-        s.userSetMixerLevel(channel: 4, busIdx: 0, level: -10)
-        XCTAssertEqual(s.stereoBalance(leftChannel: 4, pair: 0), 0.5, accuracy: 1e-6)
-        XCTAssertEqual(s.mixLevel(channel: 4, busIdx: 0), -10, accuracy: 1e-6)
-        XCTAssertEqual(gains(s, channel: 5, pair: 0).1, -10, accuracy: 1e-6)
-    }
-
-    func testBalanceIsPerMixPair() {
-        let s = makeState()
-        s.userToggleLink(channel: 4)
-        s.userSetStereoBalance(leftChannel: 4, pair: 0, balance: 1)
-        XCTAssertEqual(s.stereoBalance(leftChannel: 4, pair: 1), 0)
+        s.userSetStereoPan(leftChannel: 4, pair: 0, pan: 1)
+        // Both channels on the right output only.
         XCTAssertEqual(gains(s, channel: 4, pair: 0).0, MixGain.floorDb)
+        XCTAssertEqual(gains(s, channel: 4, pair: 0).1, -6, accuracy: 1e-6)
+        XCTAssertEqual(gains(s, channel: 5, pair: 0).0, MixGain.floorDb)
+        XCTAssertEqual(gains(s, channel: 5, pair: 0).1, -6, accuracy: 1e-6)
     }
 
-    func testBalanceSnapsToCenterNearZero() {
+    func testPanningLeftMirrorsPanningRight() {
         let s = makeState()
         s.userToggleLink(channel: 4)
-        s.userSetStereoBalance(leftChannel: 4, pair: 0, balance: 0.03)
-        XCTAssertEqual(s.stereoBalance(leftChannel: 4, pair: 0), 0)
+        s.userSetStereoPan(leftChannel: 4, pair: 0, pan: -1)
+        XCTAssertEqual(gains(s, channel: 4, pair: 0).0, 0)
+        XCTAssertEqual(gains(s, channel: 4, pair: 0).1, MixGain.floorDb)
+        XCTAssertEqual(gains(s, channel: 5, pair: 0).0, 0)
+        XCTAssertEqual(gains(s, channel: 5, pair: 0).1, MixGain.floorDb)
     }
 
-    func testBalanceDoesNothingWithoutAStereoLinkOrOnMonoMixes() {
+    func testWidthNarrowsTheImageTowardMono() {
         let s = makeState()
-        s.userSetStereoBalance(leftChannel: 4, pair: 0, balance: 1)           // channels not linked
-        XCTAssertEqual(s.mixerLevels[4][0], 0)
+        s.userToggleLink(channel: 4)
+        s.userSetStereoWidth(leftChannel: 4, pair: 0, width: 0)
+        for ch in [4, 5] {
+            XCTAssertEqual(gains(s, channel: ch, pair: 0).0, 0)
+            XCTAssertEqual(gains(s, channel: ch, pair: 0).1, 0)
+        }
+    }
+
+    func testPanAndWidthKeepEachOtherAndTheFader() {
+        let s = makeState()
+        s.userToggleLink(channel: 4)
+        s.userSetStereoWidth(leftChannel: 4, pair: 0, width: 0.5)
+        s.userSetStereoPan(leftChannel: 4, pair: 0, pan: 0.4)
+        var image = s.stereoPanWidth(leftChannel: 4, pair: 0)
+        XCTAssertEqual(image.pan, 0.4, accuracy: 1e-9)
+        XCTAssertEqual(image.width, 0.5, accuracy: 1e-9)
+
+        s.userSetMixerLevel(channel: 4, busIdx: 0, level: -10)
+        image = s.stereoPanWidth(leftChannel: 4, pair: 0)
+        XCTAssertEqual(image.pan, 0.4, accuracy: 1e-9)
+        XCTAssertEqual(image.width, 0.5, accuracy: 1e-9)
+
+        s.userSetStereoWidth(leftChannel: 4, pair: 0, width: 0.8)
+        XCTAssertEqual(s.stereoPanWidth(leftChannel: 4, pair: 0).pan, 0.4, accuracy: 1e-9)
+    }
+
+    func testWidthMeansNothingAtFullPan() {
+        let s = makeState()
+        s.userToggleLink(channel: 4)
+        s.userSetStereoPan(leftChannel: 4, pair: 0, pan: 1)
+        s.userSetStereoWidth(leftChannel: 4, pair: 0, width: 0.2)
+        XCTAssertEqual(s.mixerPans[4][0], 1)
+        XCTAssertEqual(s.mixerPans[5][0], 1)
+    }
+
+    func testPanAndWidthSnapAtTheirDefaults() {
+        let s = makeState()
+        s.userToggleLink(channel: 4)
+        s.userSetStereoPan(leftChannel: 4, pair: 0, pan: 0.03)
+        XCTAssertEqual(s.stereoPanWidth(leftChannel: 4, pair: 0).pan, 0)
+        s.userSetStereoWidth(leftChannel: 4, pair: 0, width: 0.97)
+        XCTAssertEqual(s.stereoPanWidth(leftChannel: 4, pair: 0).width, 1)
+    }
+
+    func testPanIsPerMixPair() {
+        let s = makeState()
+        s.userToggleLink(channel: 4)
+        s.userSetStereoPan(leftChannel: 4, pair: 0, pan: 1)
+        XCTAssertEqual(s.stereoPanWidth(leftChannel: 4, pair: 1).pan, 0)
+    }
+
+    func testStereoPanDoesNothingWithoutAStereoLinkOrOnMonoMixes() {
+        let s = makeState()
+        s.userSetStereoPan(leftChannel: 4, pair: 0, pan: 1)                  // channels not linked
+        XCTAssertEqual(s.mixerPans[4][0], 0)
 
         s.userToggleLink(channel: 4)
         s.userSetMixPairLinked(0, linked: false)
-        s.userSetStereoBalance(leftChannel: 4, pair: 0, balance: 1)           // mono mixes
-        XCTAssertEqual(s.mixLevel(channel: 4, busIdx: 0), s.mixLevel(channel: 5, busIdx: 0))
-        XCTAssertEqual(s.mixLevel(channel: 4, busIdx: 1), s.mixLevel(channel: 5, busIdx: 1))
+        s.userSetStereoPan(leftChannel: 4, pair: 0, pan: 1)                  // mono mixes
+        s.userSetStereoWidth(leftChannel: 4, pair: 0, width: 0)
+        XCTAssertEqual(s.mixerPans[4][0], 0)
+        XCTAssertEqual(s.mixerPans[5][0], 0)
     }
 
-    func testChannelsLinkedAtDifferentLevelsShowTheirRealBalance() {
+    func testRelinkingMixesPutsAPannedPairBackHardLeftAndRight() {
         let s = makeState()
-        s.userSetMixerLevel(channel: 4, busIdx: 0, level: -3)
-        s.userSetMixerLevel(channel: 5, busIdx: 0, level: -9)
         s.userToggleLink(channel: 4)
-        XCTAssertLessThan(s.stereoBalance(leftChannel: 4, pair: 0), 0)       // right is quieter
-        XCTAssertEqual(s.mixLevel(channel: 4, busIdx: 0), -3, accuracy: 1e-6)
+        s.userSetStereoPan(leftChannel: 4, pair: 0, pan: 0.6)
+        s.userSetMixPairLinked(0, linked: false)
+        s.userSetMixPairLinked(0, linked: true)
+        XCTAssertEqual(s.mixerPans[4][0], -1)
+        XCTAssertEqual(s.mixerPans[5][0], 1)
     }
 }

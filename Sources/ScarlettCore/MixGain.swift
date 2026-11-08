@@ -47,4 +47,23 @@ public enum MixGain {
         (max(floorDb, cellGain(level: level, pan: pan, isLeft: true)),
          max(floorDb, cellGain(level: level, pan: pan, isLeft: false)))
     }
+
+    /// Where the two channels of a stereo-linked pair sit (-1 left … +1 right)
+    /// for a pair pan and a width.  Width 1 is hard left and right, 0 is mono.
+    /// Panning moves both toward the chosen edge, so at full pan both channels
+    /// land there and the image folds onto that side.
+    public static func stereoPositions(pan: Double, width: Double) -> (left: Double, right: Double) {
+        let pan = max(-1, min(1, pan))
+        let spread = max(0, min(1, width)) * (1 - abs(pan))
+        return (max(-1, pan - spread), min(1, pan + spread))
+    }
+
+    /// Inverse of `stereoPositions`.  At full pan the channels share one spot
+    /// and the width can't be told, so it reads as 1.
+    public static func stereoPanWidth(left: Double, right: Double) -> (pan: Double, width: Double) {
+        let pan = (left + right) / 2
+        let room = 1 - abs(pan)
+        guard room > 1e-6 else { return (pan, 1) }
+        return (pan, max(0, min(1, (right - left) / (2 * room))))
+    }
 }

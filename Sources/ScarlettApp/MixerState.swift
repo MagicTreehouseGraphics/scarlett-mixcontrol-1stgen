@@ -1365,8 +1365,8 @@ final class MixerState {
 
     /// The fader value to show for a channel on one mix bus.  In a linked
     /// pair both buses read the pair's level; unlinked, each has its own.  A
-    /// stereo-linked channel pair in a linked mix pair shares one fader, at
-    /// the louder channel's level, since balance turns the other one down.
+    /// stereo-linked channel pair in a linked mix pair shares one fader; if the
+    /// two ever differ, the louder one is shown.
     func mixLevel(channel: Int, busIdx: Int) -> Double {
         let pair = busIdx / 2
         if isMixPairLinked(pair) {
@@ -1381,17 +1381,10 @@ final class MixerState {
     /// Set a channel's fader on one mix bus.  In a linked pair that sets the
     /// pair's level and pushes both of its cells; in an unlinked pair only
     /// this bus changes.  If the channel is in a linked stereo pair, the
-    /// partner follows: in a linked mix pair keeping the pair's balance, in
-    /// an unlinked one at the same level.
+    /// partner follows at the same level.
     func userSetMixerLevel(channel: Int, busIdx: Int, level: Double) {
         guard (0..<18).contains(channel), (0..<profile.mixBusCount).contains(busIdx) else { return }
         let pair = busIdx / 2
-        if isMixPairLinked(pair), linkedPartner(channel) != nil {
-            let left = channel - channel % 2
-            applyStereoLevels(leftChannel: left, pair: pair, level: level,
-                              balance: stereoBalance(leftChannel: left, pair: pair))
-            return
-        }
         for ch in [channel] + (linkedPartner(channel).map { [$0] } ?? []) {
             if isMixPairLinked(pair) {
                 mixerLevels[ch][pair] = level
@@ -1404,29 +1397,40 @@ final class MixerState {
         saveMatrix()
     }
 
-    /// Balance of a stereo-linked channel pair in a linked mix pair, -1 (left
-    /// only) … +1 (right only).  Not stored: it is how far the right channel's
-    /// level sits from the left's, since each channel goes to one side.
-    func stereoBalance(leftChannel left: Int, pair: Int) -> Double {
-        guard (0..<17).contains(left), (0..<stereoPairCount).contains(pair) else { return 0 }
-        return MixGain.deriveLevelAndPan(left: mixerLevels[left][pair],
-                                         right: mixerLevels[left + 1][pair]).pan
+    /// Pan and width of a stereo-linked channel pair in a linked mix pair, read
+    /// from where its two channels sit: pan -1 … +1, width 0 (mono) … 1.
+    func stereoPanWidth(leftChannel left: Int, pair: Int) -> (pan: Double, width: Double) {
+        guard (0..<17).contains(left), (0..<stereoPairCount).contains(pair) else { return (0, 1) }
+        return MixGain.stereoPanWidth(left: mixerPans[left][pair], right: mixerPans[left + 1][pair])
     }
 
-    /// Shift a stereo-linked pair's image left or right on one mix pair,
-    /// keeping its fader.  Snaps to center within ±0.04.
-    func userSetStereoBalance(leftChannel left: Int, pair: Int, balance: Double) {
-        guard (0..<17).contains(left), left.isMultiple(of: 2), isLinked(left),
-              (0..<stereoPairCount).contains(pair), isMixPairLinked(pair) else { return }
-        let snapped = abs(balance) < 0.04 ? 0 : max(-1, min(1, balance))
-        applyStereoLevels(leftChannel: left, pair: pair,
-                          level: mixLevel(channel: left, busIdx: pair * 2), balance: snapped)
+    /// Move a stereo-linked pair across the mix pair, keeping its width.  Snaps
+    /// to center within ±0.04.
+    func userSetStereoPan(leftChannel left: Int, pair: Int, pan: Double) {
+        guard canShapeStereoImage(leftChannel: left, pair: pair) else { return }
+        let snapped = abs(pan) < 0.04 ? 0 : max(-1, min(1, pan))
+        applyStereoImage(leftChannel: left, pair: pair, pan: snapped,
+                         width: stereoPanWidth(leftChannel: left, pair: pair).width)
     }
 
-    private func applyStereoLevels(leftChannel left: Int, pair: Int, level: Double, balance: Double) {
-        let split = MixGain.unlinkedLevels(level: level, pan: balance)
-        mixerLevels[left][pair] = split.left
-        mixerLevels[left + 1][pair] = split.right
+    /// Narrow a stereo-linked pair toward mono, keeping its pan.  Snaps to full
+    /// width near 1.
+    func userSetStereoWidth(leftChannel left: Int, pair: Int, width: Double) {
+        guard canShapeStereoImage(leftChannel: left, pair: pair) else { return }
+        let snapped = width > 0.96 ? 1 : max(0, width)
+        applyStereoImage(leftChannel: left, pair: pair,
+                         pan: stereoPanWidth(leftChannel: left, pair: pair).pan, width: snapped)
+    }
+
+    private func canShapeStereoImage(leftChannel left: Int, pair: Int) -> Bool {
+        (0..<17).contains(left) && left.isMultiple(of: 2) && isLinked(left)
+            && (0..<stereoPairCount).contains(pair) && isMixPairLinked(pair)
+    }
+
+    private func applyStereoImage(leftChannel left: Int, pair: Int, pan: Double, width: Double) {
+        let positions = MixGain.stereoPositions(pan: pan, width: width)
+        mixerPans[left][pair] = positions.left
+        mixerPans[left + 1][pair] = positions.right
         pushBusPair(channel: left, pair: pair)
         pushBusPair(channel: left + 1, pair: pair)
         saveMatrix()

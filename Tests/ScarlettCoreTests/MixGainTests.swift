@@ -38,4 +38,40 @@ final class MixGainTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(split.left, MixGain.floorDb)
         XCTAssertGreaterThanOrEqual(split.right, MixGain.floorDb)
     }
+
+    func testStereoPositionsAtDefaultsAreHardLeftAndRight() {
+        let p = MixGain.stereoPositions(pan: 0, width: 1)
+        XCTAssertEqual(p.left, -1)
+        XCTAssertEqual(p.right, 1)
+    }
+
+    func testPanningFoldsTheImageOntoTheChosenSide() {
+        let half = MixGain.stereoPositions(pan: 0.5, width: 1)
+        XCTAssertEqual(half.left, 0, accuracy: 1e-9)
+        XCTAssertEqual(half.right, 1, accuracy: 1e-9)
+        let full = MixGain.stereoPositions(pan: -1, width: 1)
+        XCTAssertEqual(full.left, -1)
+        XCTAssertEqual(full.right, -1)
+    }
+
+    func testZeroWidthPutsBothChannelsAtThePan() {
+        let p = MixGain.stereoPositions(pan: 0.3, width: 0)
+        XCTAssertEqual(p.left, 0.3, accuracy: 1e-9)
+        XCTAssertEqual(p.right, 0.3, accuracy: 1e-9)
+    }
+
+    func testStereoPanWidthInvertsStereoPositions() {
+        for (pan, width) in [(0.0, 1.0), (0.5, 1.0), (-0.5, 0.5), (0.4, 0.5), (0.0, 0.0), (-0.75, 0.3)] {
+            let p = MixGain.stereoPositions(pan: pan, width: width)
+            let back = MixGain.stereoPanWidth(left: p.left, right: p.right)
+            XCTAssertEqual(back.pan, pan, accuracy: 1e-9)
+            XCTAssertEqual(back.width, width, accuracy: 1e-9)
+        }
+    }
+
+    func testWidthReadsAsFullWhenBothChannelsShareTheEdge() {
+        let back = MixGain.stereoPanWidth(left: 1, right: 1)
+        XCTAssertEqual(back.pan, 1)
+        XCTAssertEqual(back.width, 1)
+    }
 }

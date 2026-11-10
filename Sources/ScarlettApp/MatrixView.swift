@@ -489,15 +489,19 @@ struct MatrixMixerView: View {
     private func overflowEdge(leading: Bool, active: Bool, count: Int, target: Int?,
                               proxy: ScrollViewProxy) -> some View {
         let width: CGFloat = 28
+        // The key slides with a spring; the fade and the pocket's shading come
+        // and go more slowly than the slide, so they never pop.
         let slide: Animation = active
-            ? .spring(response: 0.42, dampingFraction: 0.66)
-            : .easeIn(duration: 0.22)
+            ? .spring(response: 0.5, dampingFraction: 0.7)
+            : .easeIn(duration: 0.3)
+        let soften: Animation = .easeInOut(duration: active ? 0.8 : 0.6)
         return ZStack(alignment: leading ? .leading : .trailing) {
             LinearGradient(colors: [Color.black.opacity(0.8), Color.black.opacity(0.35), Color.black.opacity(0)],
                            startPoint: leading ? .leading : .trailing,
                            endPoint: leading ? .trailing : .leading)
                 .frame(width: 88)
                 .opacity(active ? 1 : 0)
+                .animation(soften, value: active)
                 .allowsHitTesting(false)
             Button {
                 guard let target else { return }
@@ -515,7 +519,11 @@ struct MatrixMixerView: View {
                         .foregroundStyle(Theme.textPrimary.opacity(0.9))
                 }
                 .frame(width: width, height: 64)
-                .background { EdgeKeyPocket(leading: leading) }
+                .background {
+                    EdgeKeyPocket(leading: leading)
+                        .opacity(active ? 1 : 0)
+                        .animation(soften, value: active)
+                }
                 .contentShape(Rectangle())
             }
             .buttonStyle(EdgeKeyPressStyle(leading: leading))

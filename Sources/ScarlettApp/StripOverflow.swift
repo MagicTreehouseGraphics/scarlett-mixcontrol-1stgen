@@ -68,9 +68,9 @@ struct EdgeTabShape: Shape {
     }
 }
 
-/// The pocket the edge key sits in: darker than the panel, shaded along its
-/// top and inner edge and lit along its lower lip, so it reads as cut into
-/// the side wall rather than stuck on top of it.
+/// The pocket the edge key sits in: cut from the same plate as the panel, so
+/// it is that colour a little darker rather than black, shaded where the wall
+/// falls into it along its top and inner edge, and lit along its lower lip.
 struct EdgeKeyPocket: View {
     let leading: Bool
 
@@ -78,20 +78,20 @@ struct EdgeKeyPocket: View {
         let shape = EdgeTabShape(leading: leading)
         shape
             .fill(LinearGradient(
-                colors: [Color.black.opacity(0.78), Color.black.opacity(0.52)],
+                colors: [Color(white: 0.118), Color(white: 0.138)],
                 startPoint: .top, endPoint: .bottom))
             .overlay {
                 // Shadow cast into the pocket from its wall.
                 shape.fill(LinearGradient(
-                    colors: [Color.black.opacity(0.55), Color.clear],
+                    colors: [Color.black.opacity(0.32), Color.clear],
                     startPoint: leading ? .leading : .trailing,
                     endPoint: leading ? .trailing : .leading))
             }
             .overlay {
                 shape.stroke(LinearGradient(
-                    stops: [.init(color: Color.black.opacity(0.9), location: 0),
-                            .init(color: Color.white.opacity(0.04), location: 0.55),
-                            .init(color: Color.white.opacity(0.16), location: 1)],
+                    stops: [.init(color: Color.black.opacity(0.7), location: 0),
+                            .init(color: Color.white.opacity(0.03), location: 0.55),
+                            .init(color: Color.white.opacity(0.14), location: 1)],
                     startPoint: .top, endPoint: .bottom), lineWidth: 1)
             }
     }

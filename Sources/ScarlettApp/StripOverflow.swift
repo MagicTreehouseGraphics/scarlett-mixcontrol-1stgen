@@ -37,3 +37,74 @@ final class StripTracker {
             rightCount: hiddenRight.reduce(0) { $0 + channels($1) })
     }
 }
+
+/// A tab set against one side of a panel, flat where it meets the side and
+/// rounded on its free edge.
+struct EdgeTabShape: Shape {
+    /// True when it is attached to the left side.
+    let leading: Bool
+    var radius: CGFloat = 9
+
+    func path(in rect: CGRect) -> Path {
+        let r = min(radius, rect.width, rect.height / 2)
+        var p = Path()
+        if leading {
+            p.move(to: CGPoint(x: rect.minX, y: rect.minY))
+            p.addLine(to: CGPoint(x: rect.maxX - r, y: rect.minY))
+            p.addArc(tangent1End: CGPoint(x: rect.maxX, y: rect.minY), tangent2End: CGPoint(x: rect.maxX, y: rect.minY + r), radius: r)
+            p.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - r))
+            p.addArc(tangent1End: CGPoint(x: rect.maxX, y: rect.maxY), tangent2End: CGPoint(x: rect.maxX - r, y: rect.maxY), radius: r)
+            p.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
+        } else {
+            p.move(to: CGPoint(x: rect.maxX, y: rect.minY))
+            p.addLine(to: CGPoint(x: rect.minX + r, y: rect.minY))
+            p.addArc(tangent1End: CGPoint(x: rect.minX, y: rect.minY), tangent2End: CGPoint(x: rect.minX, y: rect.minY + r), radius: r)
+            p.addLine(to: CGPoint(x: rect.minX, y: rect.maxY - r))
+            p.addArc(tangent1End: CGPoint(x: rect.minX, y: rect.maxY), tangent2End: CGPoint(x: rect.minX + r, y: rect.maxY), radius: r)
+            p.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        }
+        p.closeSubpath()
+        return p
+    }
+}
+
+/// The pocket the edge key sits in: darker than the panel, shaded along its
+/// top and inner edge and lit along its lower lip, so it reads as cut into
+/// the side wall rather than stuck on top of it.
+struct EdgeKeyPocket: View {
+    let leading: Bool
+
+    var body: some View {
+        let shape = EdgeTabShape(leading: leading)
+        shape
+            .fill(LinearGradient(
+                colors: [Color.black.opacity(0.78), Color.black.opacity(0.52)],
+                startPoint: .top, endPoint: .bottom))
+            .overlay {
+                // Shadow cast into the pocket from its wall.
+                shape.fill(LinearGradient(
+                    colors: [Color.black.opacity(0.55), Color.clear],
+                    startPoint: leading ? .leading : .trailing,
+                    endPoint: leading ? .trailing : .leading))
+            }
+            .overlay {
+                shape.stroke(LinearGradient(
+                    stops: [.init(color: Color.black.opacity(0.9), location: 0),
+                            .init(color: Color.white.opacity(0.04), location: 0.55),
+                            .init(color: Color.white.opacity(0.16), location: 1)],
+                    startPoint: .top, endPoint: .bottom), lineWidth: 1)
+            }
+    }
+}
+
+/// Presses the key a little further into its pocket.
+struct EdgeKeyPressStyle: ButtonStyle {
+    let leading: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .offset(x: configuration.isPressed ? (leading ? -2 : 2) : 0)
+            .brightness(configuration.isPressed ? -0.18 : 0)
+            .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
+    }
+}

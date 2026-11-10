@@ -22,6 +22,10 @@ struct MatrixMixerView: View {
     /// Channels scrolled out of view at either end of the strips (see `stripScroll`).
     @State private var overflow = StripOverflow()
     @State private var stripTracker = StripTracker()
+    /// The counts the edge keys last showed, kept while a key slides away so it
+    /// doesn't flash "0" on the way out.
+    @State private var shownLeft = 0
+    @State private var shownRight = 0
     private var visibleChannels: Range<Int> {
         let physicalInputs = state.profile.sources.filter {
             $0.category == .analog || $0.category == .digital
@@ -455,34 +459,48 @@ struct MatrixMixerView: View {
                 stripTracker.frames = frames
                 updateOverflow()
             }
-            .overlay(alignment: .leading) {
-                if let target = overflow.leftTarget {
-                    overflowEdge(leading: true, count: overflow.leftCount, target: target, proxy: proxy)
+            .overlay {
+                // Both keys are always there; the one with nothing to reveal
+                // is slid into the edge, where this clips it.
+                ZStack {
+                    overflowEdge(leading: true, active: overflow.leftTarget != nil,
+                                 count: shownLeft, target: overflow.leftTarget, proxy: proxy)
+                    overflowEdge(leading: false, active: overflow.rightTarget != nil,
+                                 count: shownRight, target: overflow.rightTarget, proxy: proxy)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.horizontal, -4)
+                .clipped()
             }
-            .overlay(alignment: .trailing) {
-                if let target = overflow.rightTarget {
-                    overflowEdge(leading: false, count: overflow.rightCount, target: target, proxy: proxy)
-                }
-            }
-            .animation(.easeInOut(duration: 0.2), value: overflow)
         }
     }
 
     private func updateOverflow() {
         let new = stripTracker.overflow(channelBound: visibleChannels.upperBound)
+        if new.leftCount > 0, shownLeft != new.leftCount { shownLeft = new.leftCount }
+        if new.rightCount > 0, shownRight != new.rightCount { shownRight = new.rightCount }
         if new != overflow { overflow = new }
     }
 
-    /// The fade and the key at one end of the strips.
-    private func overflowEdge(leading: Bool, count: Int, target: Int, proxy: ScrollViewProxy) -> some View {
-        ZStack(alignment: leading ? .leading : .trailing) {
+    /// The edge cue: the strips fade toward the edge, and a pocket cut into the
+    /// panel's side wall holds a recessed key with an arrow and the number of
+    /// channels out of view.  The key pushes out of the wall when there is more
+    /// to see and slides back into it at the end.
+    private func overflowEdge(leading: Bool, active: Bool, count: Int, target: Int?,
+                              proxy: ScrollViewProxy) -> some View {
+        let width: CGFloat = 28
+        let slide: Animation = active
+            ? .spring(response: 0.42, dampingFraction: 0.66)
+            : .easeIn(duration: 0.22)
+        return ZStack(alignment: leading ? .leading : .trailing) {
             LinearGradient(colors: [Color.black.opacity(0.8), Color.black.opacity(0.35), Color.black.opacity(0)],
                            startPoint: leading ? .leading : .trailing,
                            endPoint: leading ? .trailing : .leading)
                 .frame(width: 88)
+                .opacity(active ? 1 : 0)
                 .allowsHitTesting(false)
             Button {
+                guard let target else { return }
                 withAnimation(.easeInOut(duration: 0.32)) {
                     proxy.scrollTo(target, anchor: leading ? .trailing : .leading)
                 }
@@ -491,20 +509,22 @@ struct MatrixMixerView: View {
                     Image(systemName: leading ? "chevron.left" : "chevron.right")
                         .font(.system(size: 12, weight: .bold))
                         .foregroundStyle(Theme.muteActive)
+                        .shadow(color: Theme.muteActive.opacity(0.8), radius: 4)
                     Text("\(count)")
                         .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(Theme.textPrimary)
+                        .foregroundStyle(Theme.textPrimary.opacity(0.9))
                 }
-                .frame(width: 30, height: 56)
-                .analogKey(active: false, color: Theme.muteActive, cornerRadius: 5)
-                .shadow(color: Theme.muteActive.opacity(0.5), radius: 7)
+                .frame(width: width, height: 64)
+                .background { EdgeKeyPocket(leading: leading) }
                 .contentShape(Rectangle())
             }
-            .buttonStyle(AnalogKeyPressStyle())
-            .padding(.horizontal, 4)
+            .buttonStyle(EdgeKeyPressStyle(leading: leading))
+            .offset(x: active ? 0 : (leading ? -width - 6 : width + 6))
+            .animation(slide, value: active)
+            .allowsHitTesting(active)
             .help("\(count) more channel\(count == 1 ? "" : "s") \(leading ? "to the left" : "to the right")")
         }
-        .transition(.opacity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: leading ? .leading : .trailing)
     }
 
     private var mixPanel: some View {

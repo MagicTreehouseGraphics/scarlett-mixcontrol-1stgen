@@ -33,6 +33,8 @@ final class DesignPreview: XCTestCase {
         appearance.meterGlow = .full
         try renderWindow(page(state, spare: 140), size: CGSize(width: 1500, height: 780),
                          to: dir.appendingPathComponent("page.png"))
+        try renderWindow(page(state, spare: 0), size: CGSize(width: 2500, height: 780),
+                         to: dir.appendingPathComponent("page-wide.png"))
         state.selectedBus = state.matrixBuses[2]
         try renderWindow(page(state, spare: 140), size: CGSize(width: 1500, height: 780),
                          to: dir.appendingPathComponent("page-second.png"))
@@ -139,7 +141,7 @@ final class DesignPreview: XCTestCase {
         window.contentView = host
         host.layoutSubtreeIfNeeded()
         // Let SwiftUI settle: measured sizes and onAppear work arrive on later passes.
-        for _ in 0..<6 {
+        for _ in 0..<20 {
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
             host.layoutSubtreeIfNeeded()
         }

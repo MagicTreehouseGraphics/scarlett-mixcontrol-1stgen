@@ -33,9 +33,83 @@ final class DesignPreview: XCTestCase {
         appearance.meterGlow = .full
         try renderWindow(page(state, spare: 140), size: CGSize(width: 1500, height: 780),
                          to: dir.appendingPathComponent("page.png"))
+        state.selectedBus = state.matrixBuses[2]
+        try renderWindow(page(state, spare: 140), size: CGSize(width: 1500, height: 780),
+                         to: dir.appendingPathComponent("page-second.png"))
+        state.selectedBus = state.matrixBuses[0]
+        try contactSheet(state, to: dir.appendingPathComponent("colours.png"))
         appearance.look = .classic
         try renderWindow(page(state, spare: 140), size: CGSize(width: 1500, height: 780),
                          to: dir.appendingPathComponent("page-classic.png"))
+    }
+
+    /// The top-left of the page with the first mix in each of several colours,
+    /// stacked, to compare how the glow looks in each.
+    private func contactSheet(_ state: MixerState, to url: URL) throws {
+        let colours = ["", "#F2C94C", "#F5963A", "#F2594D", "#4DCC66", "#9B6BF2"]
+        let crop = CGSize(width: 760, height: 250)
+        let sheet = NSImage(size: CGSize(width: crop.width, height: crop.height * CGFloat(colours.count)))
+        let size = CGSize(width: 1500, height: 780)
+        var images: [NSBitmapImageRep] = []
+        for hex in colours {
+            state.userSetMixAppearance(tab: 0, name: "Main Mix", colorHex: hex)
+            images.append(try snapshot(page(state, spare: 0), size: size))
+        }
+        state.userSetMixAppearance(tab: 0, name: "Main Mix", colorHex: "#4D8CF2")
+        sheet.lockFocus()
+        for (i, rep) in images.enumerated() {
+            let y = crop.height * CGFloat(colours.count - 1 - i)
+            let source = NSRect(x: 0, y: size.height - crop.height, width: crop.width, height: crop.height)
+            NSImage(cgImage: rep.cgImage!, size: size)
+                .draw(in: NSRect(x: 0, y: y, width: crop.width, height: crop.height), from: source,
+                      operation: .copy, fraction: 1)
+        }
+        sheet.unlockFocus()
+        let tiff = try XCTUnwrap(sheet.tiffRepresentation)
+        let png = try XCTUnwrap(NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]))
+        try png.write(to: url)
+    }
+
+    /// Rough cost of redrawing the whole page as a live window resize does: one
+    /// layout and draw per window height.  Run with RENDER_BENCH=1.
+    func testResizeCost() throws {
+        guard ProcessInfo.processInfo.environment["RENDER_BENCH"] != nil else {
+            throw XCTSkip("Set RENDER_BENCH=1 to time page redraws")
+        }
+        _ = NSApplication.shared
+        let state = sampleState()
+        let appearance = AppearanceSettings.shared
+        let saved = (appearance.look, appearance.meterGlow)
+        defer { (appearance.look, appearance.meterGlow) = saved }
+
+        let heights = stride(from: 780, through: 640, by: -10).map { CGFloat($0) }
+        func time(_ name: String, look: MixerLook, glow: MeterGlow = .full, spare: CGFloat = 0) throws {
+            appearance.look = look
+            appearance.meterGlow = glow
+            let host = NSHostingView(rootView: MatrixMixerView(state: state)
+                .padding(24)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .background(Theme.background)
+                .environment(\.faderHeight, 300))
+            host.frame = CGRect(x: 0, y: 0, width: 1500, height: 780)
+            let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+            window.contentView = host
+            for _ in 0..<4 { RunLoop.current.run(until: Date().addingTimeInterval(0.05)); host.layoutSubtreeIfNeeded() }
+            var total = 0.0
+            for (i, h) in heights.enumerated() {
+                host.rootView = host.rootView   // keep the type; the size change drives the redraw
+                host.frame = CGRect(x: 0, y: 0, width: 1500, height: h)
+                let start = Date()
+                host.layoutSubtreeIfNeeded()
+                let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+                host.cacheDisplay(in: host.bounds, to: rep)
+                if i > 0 { total += Date().timeIntervalSince(start) * 1000 }
+            }
+            print("RESIZE \(name): \(String(format: "%.1f", total / Double(heights.count - 1))) ms per step")
+        }
+        try time("classic", look: .classic)
+        try time("analog", look: .analog)
+        try time("analog simple meters", look: .analog, glow: .simple)
     }
 
     /// The mixer page as the window shows it: padded, on the window colour.
@@ -51,6 +125,12 @@ final class DesignPreview: XCTestCase {
     /// Draws the view in a real (never shown) window, so scroll views, menus
     /// and pickers come out as in the app.  `ImageRenderer` can't draw those.
     private func renderWindow(_ view: some View, size: CGSize, to url: URL) throws {
+        let rep = try snapshot(view, size: size)
+        let png = try XCTUnwrap(rep.representation(using: .png, properties: [:]))
+        try png.write(to: url)
+    }
+
+    private func snapshot(_ view: some View, size: CGSize) throws -> NSBitmapImageRep {
         _ = NSApplication.shared
         let host = NSHostingView(rootView: view.environment(\.colorScheme, .dark))
         host.frame = CGRect(origin: .zero, size: size)
@@ -65,8 +145,7 @@ final class DesignPreview: XCTestCase {
         }
         let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
         host.cacheDisplay(in: host.bounds, to: rep)
-        let png = try XCTUnwrap(rep.representation(using: .png, properties: [:]))
-        try png.write(to: url)
+        return rep
     }
 
     /// Meters at rising levels, to see the glow grow with the signal.
@@ -89,7 +168,7 @@ final class DesignPreview: XCTestCase {
             meterColumn(fader: -12, level: -4, peak: -3, max: -2)
             meterColumn(fader: 4, level: 0, peak: 0, max: 0)
             HStack(spacing: 4) {
-                VerticalFader(db: .constant(-8), axis: .attenuation, tint: Theme.meterHigh)
+                VerticalFader(db: .constant(-8), axis: .attenuation, tint: Color(hex: "#F2594D"))
                 VerticalMeter(db: -9, peakDb: -7, maxPeakDb: -5, axis: .attenuation)
                 VerticalMeter(db: -12, peakDb: -10, maxPeakDb: -6, axis: .attenuation)
                 DbScale(axis: .attenuation)

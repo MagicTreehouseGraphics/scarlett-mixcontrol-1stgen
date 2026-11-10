@@ -69,7 +69,7 @@ struct OutputsPanel: View {
                         get: { state.visiblePairLabels.contains(group.label) },
                         set: { _ in state.userToggleOutputPairVisible(label: group.label) }
                     )) {
-                        Text(group.label)
+                        Text(state.outputDisplayName(label: group.label))
                     }
                 }
             }
@@ -80,7 +80,7 @@ struct OutputsPanel: View {
                             get: { state.menuBarPairLabels.contains(group.label) },
                             set: { _ in state.userToggleMenuBarOutput(label: group.label) }
                         )) {
-                            Text(group.label)
+                            Text(state.outputDisplayName(label: group.label))
                         }
                     }
                 }

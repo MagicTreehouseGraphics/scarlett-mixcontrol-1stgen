@@ -92,7 +92,7 @@ struct MixAppearanceEditor: View {
 }
 
 /// A rainbow bar to pick any hue, for colours the swatches don't have.
-private struct HueBar: View {
+struct HueBar: View {
     @Binding var hex: String
 
     private let thumb: CGFloat = 14
@@ -134,5 +134,80 @@ private struct HueBar: View {
     private static func hue(of hex: String) -> Double? {
         guard let color = Color(hex: hex), let ns = NSColor(color).usingColorSpace(.sRGB) else { return nil }
         return Double(ns.hueComponent)
+    }
+}
+
+/// Popover for naming an output pair and choosing its fader cap colour: the
+/// silver default, a swatch, or any hue.  Applied as it is changed.  Outputs
+/// without a fader have a name only.
+struct OutputAppearanceEditor: View {
+    /// The pair's label, shown as the placeholder.
+    let label: String
+    let showsColor: Bool
+    let onChange: (_ name: String, _ colorHex: String) -> Void
+
+    @State private var name: String
+    @State private var colorHex: String
+    @FocusState private var nameFocused: Bool
+
+    init(label: String, name: String, colorHex: String, showsColor: Bool,
+         onChange: @escaping (String, String) -> Void) {
+        self.label = label
+        self.showsColor = showsColor
+        self.onChange = onChange
+        _name = State(initialValue: name)
+        _colorHex = State(initialValue: colorHex)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            TextField(label, text: $name)
+                .textFieldStyle(.roundedBorder)
+                .focused($nameFocused)
+                .onSubmit { nameFocused = false }
+            if showsColor {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Fader color")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Theme.textSecondary)
+                    HStack(spacing: 8) {
+                        swatch(hex: "")
+                        ForEach(MixAppearanceEditor.palette, id: \.self) { swatch(hex: $0) }
+                    }
+                    HueBar(hex: $colorHex)
+                        .frame(height: 16)
+                }
+            }
+            HStack {
+                Spacer()
+                Button("Reset") {
+                    name = ""
+                    colorHex = ""
+                }
+                .disabled(name.isEmpty && colorHex.isEmpty)
+            }
+        }
+        .padding(14)
+        .frame(width: 280)
+        .onAppear { nameFocused = true }
+        .onChange(of: name) { onChange(name, colorHex) }
+        .onChange(of: colorHex) { onChange(name, colorHex) }
+    }
+
+    private func swatch(hex: String) -> some View {
+        let color = Color(hex: hex)
+        let selected = colorHex.uppercased() == hex
+        return Button {
+            colorHex = hex
+        } label: {
+            Circle()
+                .fill(color.map { AnyShapeStyle($0) }
+                      ?? AnyShapeStyle(LinearGradient(colors: [Color(white: 0.9), Color(white: 0.55)],
+                                                      startPoint: .top, endPoint: .bottom)))
+                .frame(width: 20, height: 20)
+                .overlay(Circle().strokeBorder(Color.white.opacity(selected ? 0.9 : 0), lineWidth: 2).padding(-3))
+        }
+        .buttonStyle(.plain)
+        .help(color == nil ? "Silver (default)" : hex)
     }
 }

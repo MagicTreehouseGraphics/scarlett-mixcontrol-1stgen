@@ -288,6 +288,13 @@ final class MixerState {
     /// one tab and uses its left bus's (see `mixTabKey`).
     var mixNames: [String] = Array(repeating: "", count: 8)
     var mixColors: [String] = Array(repeating: "", count: 8)
+    /// Cap colour per output pair, by its label ("Monitor", "Phones", …) as
+    /// "#RRGGBB".  A pair with none keeps the silver cap.
+    var outputColors: [String: String] = [:]
+    /// Name per output pair, by its label; a pair with none keeps its label.
+    /// The label stays the pair's identity (pins, colours, routing); this is
+    /// only what is shown.
+    var outputNames: [String: String] = [:]
     /// Mute per channel per mix bus (18 × mix count; 6 until a device says otherwise,
     /// like the other matrix arrays).  The two buses of a linked
     /// pair are always set together, so a stereo mix is never half muted.
@@ -528,6 +535,8 @@ final class MixerState {
     private static let menuBarOutputsKeyPrefix  = "scarlett.menuBarOutputs.v1"
     private static let loadedPresetKeyPrefix    = "scarlett.loadedPreset.v1"
     private static let mixAppearanceKeyPrefix   = "scarlett.mixAppearance.v1"
+    private static let outputColorsKeyPrefix    = "scarlett.outputColors.v1"
+    private static let outputNamesKeyPrefix     = "scarlett.outputNames.v1"
 
     private func routesKey(for profile: DeviceProfile) -> String {
         "\(Self.routesKeyPrefix).\(profile.productID)"
@@ -555,6 +564,12 @@ final class MixerState {
     }
     private func loadedPresetKey(for profile: DeviceProfile) -> String {
         "\(Self.loadedPresetKeyPrefix).\(profile.productID)"
+    }
+    private func outputNamesKey(for profile: DeviceProfile) -> String {
+        "\(Self.outputNamesKeyPrefix).\(profile.productID)"
+    }
+    private func outputColorsKey(for profile: DeviceProfile) -> String {
+        "\(Self.outputColorsKeyPrefix).\(profile.productID)"
     }
     private func mixAppearanceKey(for profile: DeviceProfile) -> String {
         "\(Self.mixAppearanceKeyPrefix).\(profile.productID)"
@@ -597,6 +612,8 @@ final class MixerState {
 
         mixNames = Array(repeating: "", count: profile.mixBusCount)
         mixColors = Array(repeating: "", count: profile.mixBusCount)
+        outputColors = [:]
+        outputNames = [:]
         mixerSources = Array(repeating: .off, count: profile.matrixInputCount)
         mixerLevels = Array(
             repeating: Array(repeating: 0, count: profile.stereoPairCount),
@@ -770,6 +787,22 @@ final class MixerState {
             let adopted = MixAppearance.adopted(saved, count: profile.mixBusCount)
             mixNames = adopted.names
             mixColors = adopted.colors
+        }
+
+        if let saved = defaults.dictionary(forKey: outputColorsKey(for: profile)) as? [String: String] {
+            let labels = Set(profile.physicalOutputs.map(\.pairLabel))
+            outputColors = saved.compactMapValues { hex in
+                let valid = MixAppearance.validColor(hex)
+                return valid.isEmpty ? nil : valid
+            }.filter { labels.contains($0.key) }
+        }
+
+        if let saved = defaults.dictionary(forKey: outputNamesKey(for: profile)) as? [String: String] {
+            let labels = Set(profile.physicalOutputs.map(\.pairLabel))
+            outputNames = saved.compactMapValues { name in
+                let clean = MixAppearance.cleanName(name)
+                return clean.isEmpty ? nil : clean
+            }.filter { labels.contains($0.key) }
         }
 
         if let data = defaults.data(forKey: Self.presetsKey),
@@ -2240,6 +2273,26 @@ final class MixerState {
         if let data = try? JSONEncoder().encode(MixAppearance(names: mixNames, colors: mixColors)) {
             UserDefaults.standard.set(data, forKey: mixAppearanceKey(for: profile))
         }
+    }
+
+    /// The cap colour of an output pair as "#RRGGBB", or "" for the silver default.
+    func outputColorHex(label: String) -> String { outputColors[label] ?? "" }
+
+    /// What to call an output pair: the user's name for it, else its label.
+    func outputDisplayName(label: String) -> String {
+        outputNames[label].flatMap { $0.isEmpty ? nil : $0 } ?? label
+    }
+
+    func userSetOutputName(label: String, name: String) {
+        let clean = MixAppearance.cleanName(name)
+        if clean.isEmpty { outputNames.removeValue(forKey: label) } else { outputNames[label] = clean }
+        UserDefaults.standard.set(outputNames, forKey: outputNamesKey(for: profile))
+    }
+
+    func userSetOutputColor(label: String, hex: String) {
+        let valid = MixAppearance.validColor(hex)
+        if valid.isEmpty { outputColors.removeValue(forKey: label) } else { outputColors[label] = valid }
+        UserDefaults.standard.set(outputColors, forKey: outputColorsKey(for: profile))
     }
 
     /// Pairs a linked (stereo) pair can be copied to: every other pair, which

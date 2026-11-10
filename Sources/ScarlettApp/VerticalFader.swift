@@ -187,11 +187,14 @@ struct VerticalFader: View {
                     .offset(y: knobY)
             }
 
-            cap
-                .frame(width: knobWidth, height: knobHeight)
-                .shadow(color: Color.black.opacity(0.7), radius: 4, y: 4)
-                .shadow(color: Color.black.opacity(0.55), radius: 1, y: 1.5)
-                .offset(y: knobY - knobHeight / 2)
+            // The shadow is cast by a plain silhouette, not by the cap's many
+            // gradient layers, which are costly to blur on every redraw.
+            ZStack {
+                SoftShadow(shape: RoundedRectangle(cornerRadius: 3.5), radius: 5, y: 3.5, opacity: 0.9, layers: 4)
+                cap
+            }
+            .frame(width: knobWidth, height: knobHeight)
+            .offset(y: knobY - knobHeight / 2)
         }
         .frame(width: knobWidth + 6, height: height, alignment: .top)
     }
@@ -292,34 +295,45 @@ extension VerticalFader {
     /// line, or anodised `tint` with a bright one.
     fileprivate var cap: some View {
         let shape = RoundedRectangle(cornerRadius: 3.5)
-        let base = tint ?? Color(white: 0.70)
+        let base = tint ?? Color(white: 0.80)
+        let gloss = tint == nil ? 1.0 : 0.6
         return shape
             .fill(base)
             .overlay {
                 VStack(spacing: 0) {
-                    // Top lip, facing the light.
-                    LinearGradient(colors: [Color.white.opacity(0.75), Color.white.opacity(0.30)],
+                    // Top lip, facing the light: a hard bright edge.
+                    LinearGradient(colors: [Color.white.opacity(0.95 * gloss + 0.05), Color.white.opacity(0.40)],
                                    startPoint: .top, endPoint: .bottom)
                         .frame(height: 3)
                     // Upper scoop: turns away from the light toward the line.
-                    LinearGradient(colors: [Color.white.opacity(0.10), Color.black.opacity(0.28)],
+                    LinearGradient(colors: [Color.white.opacity(0.22 * gloss), Color.black.opacity(0.34)],
                                    startPoint: .top, endPoint: .bottom)
                         .overlay { ridges }
                     positionLine
                     // Lower scoop: faces up just under the line, so it's brightest there.
-                    LinearGradient(colors: [Color.white.opacity(0.38), Color.black.opacity(0.10)],
+                    LinearGradient(colors: [Color.white.opacity(0.62 * gloss), Color.black.opacity(0.12)],
                                    startPoint: .top, endPoint: .bottom)
                         .overlay { ridges }
                     // Base: the cap's lower side, in its own shadow.
-                    LinearGradient(colors: [Color.black.opacity(0.42), Color.black.opacity(0.62)],
+                    LinearGradient(colors: [Color.black.opacity(0.46), Color.black.opacity(0.68)],
                                    startPoint: .top, endPoint: .bottom)
                         .frame(height: 5)
                 }
                 .clipShape(shape)
             }
             .overlay {
+                // A bright streak down the face, as light catches polished metal.
+                shape.fill(LinearGradient(
+                    stops: [.init(color: .clear, location: 0),
+                            .init(color: Color.white.opacity(0.30 * gloss), location: 0.18),
+                            .init(color: .clear, location: 0.40),
+                            .init(color: Color.black.opacity(0.14), location: 0.9),
+                            .init(color: Color.black.opacity(0.26), location: 1)],
+                    startPoint: .leading, endPoint: .trailing))
+            }
+            .overlay {
                 shape.strokeBorder(LinearGradient(
-                    colors: [Color.white.opacity(0.55), Color.black.opacity(0.75)],
+                    colors: [Color.white.opacity(0.75), Color.black.opacity(0.8)],
                     startPoint: .top, endPoint: .bottom), lineWidth: 0.75)
             }
     }

@@ -58,6 +58,10 @@ private struct PageSpareHeightKey: EnvironmentKey {
     static let defaultValue: CGFloat = 0
 }
 
+private struct MixGlowColorKey: EnvironmentKey {
+    static let defaultValue: Color? = nil
+}
+
 extension EnvironmentValues {
     var faderHeight: CGFloat {
         get { self[FaderHeightKey.self] }
@@ -69,6 +73,12 @@ extension EnvironmentValues {
     var pageSpareHeight: CGFloat {
         get { self[PageSpareHeightKey.self] }
         set { self[PageSpareHeightKey.self] = newValue }
+    }
+
+    /// The open mix's colour, which the cards in its panel glow with.
+    var mixGlowColor: Color? {
+        get { self[MixGlowColorKey.self] }
+        set { self[MixGlowColorKey.self] = newValue }
     }
 }
 

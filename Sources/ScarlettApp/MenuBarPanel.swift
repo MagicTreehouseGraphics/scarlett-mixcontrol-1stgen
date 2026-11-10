@@ -143,7 +143,7 @@ struct MenuBarPanel: View {
         } else {
             VStack(spacing: 10) {
                 ForEach(groups, id: \.label) { group in
-                    MenuBarOutputRow(state: state, label: group.label, outputs: group.outputs)
+                    MenuBarOutputRow(state: state, label: state.outputDisplayName(label: group.label), outputs: group.outputs)
                 }
             }
             .padding(.horizontal, 14)

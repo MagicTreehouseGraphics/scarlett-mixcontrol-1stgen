@@ -1,0 +1,112 @@
+import SwiftUI
+
+/// Where the open mix's tab sits, in the "mixBlock" coordinate space of the
+/// tab row and panel together.
+struct OpenTabFrameKey: PreferenceKey {
+    static var defaultValue: CGRect?
+    static func reduce(value: inout CGRect?, nextValue: () -> CGRect?) {
+        value = nextValue() ?? value
+    }
+}
+
+/// The outline of the mix panel with the open tab rising out of its top edge,
+/// as one shape: the tab and the panel share one edge, with small rounded
+/// inside corners where they meet.
+struct OpenTabPlate: Shape {
+    var tabX: CGFloat
+    var tabWidth: CGFloat
+    /// Height of the tab row above the panel.
+    let tabHeight: CGFloat
+    /// False before the tab has been measured: just the panel.
+    let hasTab: Bool
+    var radius: CGFloat = 6
+    var fillet: CGFloat = 5
+
+    var animatableData: AnimatablePair<CGFloat, CGFloat> {
+        get { AnimatablePair(tabX, tabWidth) }
+        set { tabX = newValue.first; tabWidth = newValue.second }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        let r = radius, f = fillet
+        let left = rect.minX, right = rect.maxX, bottom = rect.maxY
+        let top = rect.minY, shelf = rect.minY + tabHeight
+        var p = Path()
+        p.move(to: CGPoint(x: left, y: bottom - r))
+
+        if hasTab {
+            let tabLeft = tabX, tabRight = tabX + tabWidth
+            if tabLeft <= left + 0.5 {
+                // The tab is flush with the panel's left edge: one straight side.
+                p.addLine(to: CGPoint(x: left, y: top + r))
+                p.addArc(tangent1End: CGPoint(x: left, y: top), tangent2End: CGPoint(x: left + r, y: top), radius: r)
+            } else {
+                p.addLine(to: CGPoint(x: left, y: shelf))
+                p.addLine(to: CGPoint(x: tabLeft - f, y: shelf))
+                p.addArc(tangent1End: CGPoint(x: tabLeft, y: shelf), tangent2End: CGPoint(x: tabLeft, y: shelf - f), radius: f)
+                p.addLine(to: CGPoint(x: tabLeft, y: top + r))
+                p.addArc(tangent1End: CGPoint(x: tabLeft, y: top), tangent2End: CGPoint(x: tabLeft + r, y: top), radius: r)
+            }
+            p.addLine(to: CGPoint(x: tabRight - r, y: top))
+            p.addArc(tangent1End: CGPoint(x: tabRight, y: top), tangent2End: CGPoint(x: tabRight, y: top + r), radius: r)
+            p.addLine(to: CGPoint(x: tabRight, y: shelf - f))
+            p.addArc(tangent1End: CGPoint(x: tabRight, y: shelf), tangent2End: CGPoint(x: tabRight + f, y: shelf), radius: f)
+        } else {
+            p.addLine(to: CGPoint(x: left, y: shelf))
+        }
+
+        p.addLine(to: CGPoint(x: right - r, y: shelf))
+        p.addArc(tangent1End: CGPoint(x: right, y: shelf), tangent2End: CGPoint(x: right, y: shelf + r), radius: r)
+        p.addLine(to: CGPoint(x: right, y: bottom - r))
+        p.addArc(tangent1End: CGPoint(x: right, y: bottom), tangent2End: CGPoint(x: right - r, y: bottom), radius: r)
+        p.addLine(to: CGPoint(x: left + r, y: bottom))
+        p.addArc(tangent1End: CGPoint(x: left, y: bottom), tangent2End: CGPoint(x: left, y: bottom - r), radius: r)
+        p.closeSubpath()
+        return p
+    }
+}
+
+/// The raised plate behind the open tab and the mix panel, drawn once so they
+/// read as a single piece: one lit gradient from the top of the tab to the
+/// bottom of the panel, one bevel around the whole outline, one shadow.  The
+/// mix's colour is a faint wash falling from the tab's line through into the
+/// panel.
+struct MixPlate: View {
+    let tab: CGRect?
+    let tabHeight: CGFloat
+    let glow: Color
+
+    var body: some View {
+        GeometryReader { geo in
+            let height = max(geo.size.height, 1)
+            let junction = Double(min(tabHeight / height, 0.5))
+            let strength = mixGlowStrength(glow)
+            let plate = OpenTabPlate(tabX: tab?.minX ?? 0, tabWidth: tab?.width ?? 0,
+                                     tabHeight: tabHeight, hasTab: tab != nil)
+            plate
+                .fill(LinearGradient(
+                    stops: [.init(color: Color(white: 0.262), location: 0),
+                            .init(color: Theme.faceTop, location: junction),
+                            .init(color: Theme.faceMid, location: junction + (1 - junction) * 0.33),
+                            .init(color: Theme.faceBottom, location: 1)],
+                    startPoint: .top, endPoint: .bottom))
+                .overlay {
+                    plate.fill(LinearGradient(
+                        stops: [.init(color: glow.opacity(0.10 * strength), location: 0),
+                                .init(color: glow.opacity(0.05 * strength), location: junction),
+                                .init(color: glow.opacity(0), location: junction + (1 - junction) * 0.25)],
+                        startPoint: .top, endPoint: .bottom))
+                }
+                .overlay {
+                    plate.stroke(LinearGradient(
+                        stops: [.init(color: Color.white.opacity(0.34), location: 0),
+                                .init(color: Color.white.opacity(0.12), location: junction + 0.04),
+                                .init(color: Color.black.opacity(0.75), location: 1)],
+                        startPoint: .top, endPoint: .bottom), lineWidth: 1)
+                }
+                .shadow(color: Color.black.opacity(0.65), radius: 8, y: 5)
+                .animation(.easeInOut(duration: 0.18), value: tab)
+        }
+        .allowsHitTesting(false)
+    }
+}

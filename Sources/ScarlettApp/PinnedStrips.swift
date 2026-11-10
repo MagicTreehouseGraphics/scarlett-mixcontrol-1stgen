@@ -159,6 +159,7 @@ struct OutputStrip: View {
     let title: String
     let outputs: [PhysicalOutput]
     let showDim: Bool
+    @State private var choosingColor = false
 
     private var leftWValue: UInt16 { outputs.first?.wValue ?? 0 }
     private var rightOutput: PhysicalOutput? { outputs.count > 1 ? outputs[1] : nil }
@@ -208,10 +209,18 @@ struct OutputStrip: View {
             // pan on a channel strip, so the faders still line up.
             Group {
                 if analog {
-                    Image(systemName: kind.icon)
-                        .font(.system(size: 22))
-                        .foregroundStyle(kind.color)
-                        .shadow(color: kind.color.opacity(0.55), radius: 4)
+                    Button {
+                        choosingColor = true
+                    } label: {
+                        Image(systemName: kind.icon)
+                            .font(.system(size: 22))
+                            .foregroundStyle(kind.color)
+                            .shadow(color: kind.color.opacity(0.55), radius: 4)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Click to rename this output" + (hasGainStage ? " and choose its fader color" : ""))
                 } else {
                     Color.clear
                 }
@@ -229,21 +238,28 @@ struct OutputStrip: View {
 
     private var analog: Bool { AppearanceSettings.shared.look == .analog }
 
+    /// The cap colour the user gave this pair, or nil for silver.
+    private var capTint: Color? {
+        analog ? Color(hex: state.outputColorHex(label: title)) : nil
+    }
+
     /// An icon and colour for the kind of output this pair is (analog look).
-    private var kind: (icon: String, color: Color, faderTint: Color) {
+    private var kind: (icon: String, color: Color) {
         let name = title.lowercased()
-        if name.contains("monitor") { return ("display", Theme.textPrimary, Theme.meterHigh) }
-        if name.contains("phones") { return ("headphones", Theme.accentAnalog, Theme.meterHigh) }
-        if name.contains("s/pdif") { return ("cable.connector", Theme.soloActive, Theme.soloActive) }
-        if name.contains("adat") { return ("waveform", Theme.accentDigital, Theme.accentDigital) }
-        return ("hifispeaker.fill", Theme.accentInput, Theme.soloActive)
+        if name.contains("monitor") { return ("display", Theme.textPrimary) }
+        if name.contains("phones") { return ("headphones", Theme.accentAnalog) }
+        if name.contains("s/pdif") { return ("cable.connector", Theme.soloActive) }
+        if name.contains("adat") { return ("waveform", Theme.accentDigital) }
+        return ("hifispeaker.fill", Theme.accentInput)
     }
 
     private var header: some View {
         VStack(spacing: 3) {
-            Text(title)
+            Text(state.outputDisplayName(label: title))
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(Theme.textPrimary)
+                .lineLimit(1)
+                .truncationMode(.tail)
             Text(subtitle)
                 .font(.system(size: 9))
                 .foregroundStyle(Theme.textSecondary)
@@ -255,6 +271,18 @@ struct OutputStrip: View {
                 .padding(.horizontal, 2)
         }
         .frame(height: StripLayout.headerHeight, alignment: .bottom)
+        .contextMenu {
+            Button(analog && hasGainStage ? "Name & fader color…" : "Rename…") { choosingColor = true }
+        }
+        .popover(isPresented: $choosingColor, arrowEdge: .bottom) {
+            OutputAppearanceEditor(
+                label: title, name: state.outputNames[title] ?? "",
+                colorHex: state.outputColorHex(label: title), showsColor: analog && hasGainStage
+            ) { name, hex in
+                state.userSetOutputName(label: title, name: name)
+                if analog && hasGainStage { state.userSetOutputColor(label: title, hex: hex) }
+            }
+        }
     }
 
     private var fader: some View {
@@ -263,11 +291,11 @@ struct OutputStrip: View {
                 // Level is owned by the front-panel knob; the fader just
                 // tracks it. Not draggable — turning the knob moves it.
                 VerticalFader(db: Binding(get: { displayedDb }, set: { _ in }),
-                              axis: .attenuation, tint: analog ? kind.faderTint : nil)
+                              axis: .attenuation, tint: capTint)
                     .allowsHitTesting(false)
                     .help("Monitor level is set by the front-panel knob on this device — the fader mirrors it.")
             } else if hasGainStage {
-                VerticalFader(db: atten, axis: .attenuation, tint: analog ? kind.faderTint : nil)
+                VerticalFader(db: atten, axis: .attenuation, tint: capTint)
                     .contextMenu {
                         Button("Reset to 0 dB") {
                             state.userSetPairAtten(leftWValue: leftWValue, db: 0)

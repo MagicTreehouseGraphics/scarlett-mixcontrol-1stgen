@@ -381,7 +381,28 @@ struct RaisedFace<S: InsettableShape>: View {
     /// A panel is a flatter, larger plate than a card, with a deeper shadow.
     var panel = false
 
+    @Environment(\.mixGlowColor) private var glow
+
     var body: some View {
+        // The shadow is cast by a plain silhouette behind the face.  Cast by the
+        // face itself, every redraw would render all its gradient layers
+        // offscreen just to blur their outline, which made resizing the window
+        // several times slower.
+        ZStack {
+            SoftShadow(shape: shape, radius: panel ? 9 : 6, y: panel ? 5 : 3, opacity: panel ? 0.85 : 0.95)
+            face
+        }
+        .background {
+            // The open mix's light spilling out from behind a card.
+            if !panel, let glow {
+                shape.fill(glow.opacity(0.12 * mixGlowStrength(glow)))
+                    .blur(radius: 12)
+                    .padding(-1)
+            }
+        }
+    }
+
+    private var face: some View {
         shape
             .fill(LinearGradient(
                 stops: [.init(color: Theme.faceTop, location: 0),
@@ -401,12 +422,12 @@ struct RaisedFace<S: InsettableShape>: View {
             .overlay {
                 // A bevel: lit along the top and left, dark along the bottom.
                 shape.strokeBorder(LinearGradient(
-                    stops: [.init(color: Color.white.opacity(0.36), location: 0),
+                    stops: [.init(color: Color.white.opacity(panel ? 0.22 : 0.36), location: 0),
                             .init(color: Color.white.opacity(0.10), location: 0.3),
                             .init(color: Color.black.opacity(0.75), location: 1)],
                     startPoint: .top, endPoint: .bottom), lineWidth: 1.25)
             }
-            .shadow(color: Color.black.opacity(panel ? 0.65 : 0.6), radius: panel ? 8 : 5, y: panel ? 5 : 3)
+
     }
 }
 
@@ -419,5 +440,42 @@ extension View {
         } else {
             background { RaisedFace(shape: RoundedRectangle(cornerRadius: 6)) }
         }
+    }
+}
+
+// MARK: - Mix glow
+
+/// How strongly a colour may glow: bright colours such as yellow look harsh at
+/// the same strength as blue or red, so they get less.
+func mixGlowStrength(_ color: Color) -> Double {
+    guard let c = NSColor(color).usingColorSpace(.sRGB) else { return 0.8 }
+    let luminance = 0.2126 * c.redComponent + 0.7152 * c.greenComponent + 0.0722 * c.blueComponent
+    return max(0.5, min(1, 1.6 - 1.2 * Double(luminance)))
+}
+
+// MARK: - Cheap soft shadow
+
+/// A soft drop shadow built from a few stacked, progressively larger and
+/// fainter copies of `shape`, instead of a blur.  A blur is rendered offscreen
+/// and redone whenever the shape's size changes, which made resizing the window
+/// slow with a shadow on every card and fader cap; stacked fills are plain
+/// vector drawing.
+struct SoftShadow<S: Shape>: View {
+    let shape: S
+    var radius: CGFloat
+    var y: CGFloat
+    var opacity: Double
+    var layers = 5
+
+    var body: some View {
+        ZStack {
+            ForEach(0..<layers, id: \.self) { i in
+                let t = CGFloat(i + 1) / CGFloat(layers)
+                shape
+                    .fill(Color.black.opacity(opacity * Double(1 - t) * 0.55 / Double(layers) * 2))
+                    .padding(-radius * t)
+            }
+        }
+        .offset(y: y)
     }
 }

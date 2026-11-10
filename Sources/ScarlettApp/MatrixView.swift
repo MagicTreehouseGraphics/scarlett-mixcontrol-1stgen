@@ -19,6 +19,9 @@ struct MatrixMixerView: View {
     /// The mix tab (see `MixerState.mixTabKey`) whose name and colour are
     /// being edited in a popover.
     @State private var customizing: Int?
+    /// Channels scrolled out of view at either end of the strips (see `stripScroll`).
+    @State private var overflow = StripOverflow()
+    @State private var stripTracker = StripTracker()
     private var visibleChannels: Range<Int> {
         let physicalInputs = state.profile.sources.filter {
             $0.category == .analog || $0.category == .digital
@@ -36,6 +39,13 @@ struct MatrixMixerView: View {
                     tabsRow
                         .zIndex(1)
                     mixPanel
+                }
+                .coordinateSpace(name: "mixBlock")
+                .backgroundPreferenceValue(OpenTabFrameKey.self) { tab in
+                    if AppearanceSettings.shared.look == .analog {
+                        MixPlate(tab: tab, tabHeight: openTabHeight,
+                                 glow: tabColor(tabKey(state.selectedBus)) ?? Theme.tabOutline)
+                    }
                 }
                 OutputsPanel(state: state)
             }
@@ -62,7 +72,12 @@ struct MatrixMixerView: View {
         return "Link M\(pair * 2 + 1) and M\(pair * 2 + 2)?"
     }
 
-    private let tabHeight: CGFloat = 32
+    /// A tab's height when it is the open one, and when it isn't.  The open
+    /// tab rises above the rest and the others sit a little smaller, so it is
+    /// clear which is which.
+    private let tabHeight: CGFloat = 30
+    private let openTabHeight: CGFloat = 38
+    private func tabH(_ selected: Bool) -> CGFloat { selected ? openTabHeight : tabHeight }
 
     private func tabKey(_ bus: MixBus) -> Int { state.mixTabKey(forBus: bus.matrixIndex ?? 0) }
     private func tabColor(_ key: Int) -> Color? { Color(hex: state.mixColorHex(forTab: key)) }
@@ -125,20 +140,29 @@ struct MatrixMixerView: View {
     /// A folder tab around `content`.  Selected, it has the panel's fill and an
     /// outline that opens into the panel's border; otherwise it is a plain
     /// block resting on the panel's top edge.  A colour the user gave the mix
-    /// tints the outline and marks the tab with a stripe.  Double-clicking the
-    /// label, or the menu's "Name & color…", opens the editor.
+    /// tints the outline and marks the tab with a stripe.  The menu's
+    /// "Name & color…" opens the editor.
     private func mixTab<Content: View>(selected: Bool, key: Int, title: String, placeholder: String,
                                        @ViewBuilder content: () -> Content) -> some View {
         let lineWidth: CGFloat = 1.5
         let accent = tabColor(key)
         let analog = AppearanceSettings.shared.look == .analog
         return content()
-            .frame(height: tabHeight)
+            .frame(height: tabH(selected))
             .background {
                 if analog {
-                    analogTabFace(selected: selected)
+                    // The open tab has no face of its own: it is part of the
+                    // plate drawn behind the whole block (`MixPlate`).
+                    if !selected { analogTabFace(selected: false) }
                 } else {
                     FolderTabShape().fill(selected ? Theme.tabPanel : Theme.panelRaised)
+                }
+            }
+            .background {
+                GeometryReader { geo in
+                    Color.clear.preference(
+                        key: OpenTabFrameKey.self,
+                        value: analog && selected ? geo.frame(in: .named("mixBlock")) : nil)
                 }
             }
             .overlay(alignment: .top) {
@@ -147,23 +171,13 @@ struct MatrixMixerView: View {
                 // only shows for a colour the user chose).
                 if analog, selected || accent != nil {
                     let color = accent ?? Theme.tabOutline
-                    ZStack(alignment: .top) {
-                        if selected {
-                            // The line lights the tab beneath it.
-                            LinearGradient(colors: [color.opacity(0.30), color.opacity(0)],
-                                           startPoint: .top, endPoint: .bottom)
-                                .frame(height: 16)
-                                .clipShape(FolderTabShape())
-                        }
-                        Capsule()
-                            .fill(color)
-                            .frame(height: 3)
-                            .padding(.horizontal, 6)
-                            .shadow(color: color.opacity(selected ? 1 : 0.5), radius: selected ? 5 : 3)
-                            .shadow(color: color.opacity(selected ? 0.8 : 0), radius: selected ? 11 : 0)
-                            .shadow(color: color.opacity(selected ? 0.5 : 0), radius: selected ? 20 : 0)
-                            .opacity(selected ? 1 : 0.75)
-                    }
+                    Capsule()
+                        .fill(color)
+                        .frame(height: 3)
+                        .padding(.horizontal, 6)
+                        .shadow(color: color.opacity(selected ? 0.75 : 0.4), radius: selected ? 4 : 3)
+                        .shadow(color: color.opacity(selected ? 0.3 : 0), radius: selected ? 9 : 0)
+                        .opacity(selected ? 1 : 0.7)
                 }
             }
             .overlay {
@@ -182,9 +196,9 @@ struct MatrixMixerView: View {
             }
             .overlay(alignment: .bottom) {
                 // Hides the panel's top border under the tab.
-                if selected {
+                if selected && !analog {
                     Rectangle()
-                        .fill(analog ? Theme.faceTop : Theme.tabPanel)
+                        .fill(Theme.tabPanel)
                         .frame(height: lineWidth * 2)
                         .padding(.horizontal, lineWidth)
                         .offset(y: lineWidth)
@@ -209,12 +223,12 @@ struct MatrixMixerView: View {
     private func analogTabFace(selected: Bool) -> some View {
         FolderTabShape()
             .fill(LinearGradient(
-                colors: selected ? [Color(white: 0.23), Theme.faceTop] : [Color(white: 0.155), Color(white: 0.115)],
+                colors: selected ? [Color(white: 0.255), Theme.faceTop] : [Color(white: 0.20), Color(white: 0.165)],
                 startPoint: .top, endPoint: .bottom))
             .overlay {
                 FolderTabShape(inset: 0.5)
                     .stroke(LinearGradient(
-                        colors: [Color.white.opacity(selected ? 0.30 : 0.14), Color.white.opacity(0.04)],
+                        colors: [Color.white.opacity(selected ? 0.32 : 0.20), Color.white.opacity(0.05)],
                         startPoint: .top, endPoint: .bottom), lineWidth: 1)
             }
             .shadow(color: Color.black.opacity(selected ? 0.35 : 0.5), radius: 3, y: -1)
@@ -225,13 +239,12 @@ struct MatrixMixerView: View {
             state.selectedBus = bus
         } label: {
             Text(bus.displayName)
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: selected ? 13 : 11.5, weight: .semibold))
                 .foregroundStyle(selected ? Theme.textPrimary : Theme.textSecondary)
-                .frame(width: 60, height: tabHeight)
+                .frame(width: selected ? 66 : 58, height: tabH(selected))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .simultaneousGesture(TapGesture(count: 2).onEnded { customizing = tabKey(bus) })
         .contextMenu { copyMixMenuItems(for: bus) }
     }
 
@@ -243,7 +256,7 @@ struct MatrixMixerView: View {
         } label: {
             VStack(spacing: 0) {
                 Text(name)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: selected ? 12 : 10.5, weight: .semibold))
                     .foregroundStyle(selected ? Theme.textPrimary : Theme.textSecondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -252,11 +265,10 @@ struct MatrixMixerView: View {
                     .foregroundStyle(Theme.textSecondary)
             }
             .padding(.horizontal, 6)
-            .frame(width: width, height: tabHeight)
+            .frame(width: width, height: tabH(selected))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .simultaneousGesture(TapGesture(count: 2).onEnded { customizing = tabKey(bus) })
         .contextMenu { copyMixMenuItems(for: bus) }
     }
 
@@ -264,7 +276,7 @@ struct MatrixMixerView: View {
     /// divider at the end of a tab.
     private func copyArrow(for bus: MixBus, selected: Bool) -> some View {
         HStack(spacing: 0) {
-            Color.clear.frame(width: 4, height: tabHeight)
+            Color.clear.frame(width: 4, height: tabH(selected))
             Rectangle()
                 .fill(selected ? Theme.tabOutline.opacity(0.5) : Color.black.opacity(0.35))
                 .frame(width: 1, height: 18)
@@ -274,7 +286,7 @@ struct MatrixMixerView: View {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 9, weight: .bold))
                     .foregroundStyle(selected ? Theme.textPrimary : Theme.textSecondary)
-                    .frame(width: 32, height: tabHeight)
+                    .frame(width: 32, height: tabH(selected))
                     .contentShape(Rectangle())
             }
             .menuStyle(.borderlessButton)
@@ -331,6 +343,8 @@ struct MatrixMixerView: View {
             }
             Spacer(minLength: 0)
         }
+        .frame(height: openTabHeight, alignment: .bottom)
+        .animation(.easeInOut(duration: 0.18), value: state.selectedBus)
     }
 
     private var toolbar: some View {
@@ -409,17 +423,22 @@ struct MatrixMixerView: View {
 
     /// The panel under the tabs: the channel strips and the DAW return, which
     /// belong to the selected mix.  The output strips beside it belong to all.
-    private var mixPanel: some View {
-        let shape = UnevenRoundedRectangle(topLeadingRadius: 0, bottomLeadingRadius: 6,
-                                           bottomTrailingRadius: 6, topTrailingRadius: 6)
-        let outline = tabColor(tabKey(state.selectedBus)) ?? Theme.tabOutline
-        let analog = AppearanceSettings.shared.look == .analog
-        return HStack(alignment: .top, spacing: 6) {
+    /// The channel strips, scrolling sideways.  Where channels are out of view,
+    /// that edge fades and carries a key saying how many, which scrolls to
+    /// them, so it's clear there is more to see.  Both go once the end is reached.
+    private var stripScroll: some View {
+        ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
                     ForEach(Array(stride(from: visibleChannels.lowerBound,
                                          to: visibleChannels.upperBound, by: 2)), id: \.self) { left in
                         channelStrips(startingAt: left)
+                            .background {
+                                GeometryReader { geo in
+                                    Color.clear.preference(key: StripFramesKey.self,
+                                                           value: [left: geo.frame(in: .named("strips"))])
+                                }
+                            }
                     }
                 }
                 .padding(.vertical, StripLayout.pinnedOutset)
@@ -427,21 +446,86 @@ struct MatrixMixerView: View {
                 .padding(.horizontal, 6)
                 .background(SidewaysScrollWheel())
             }
+            .coordinateSpace(name: "strips")
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
+                stripTracker.viewport = width
+                updateOverflow()
+            }
+            .onPreferenceChange(StripFramesKey.self) { frames in
+                stripTracker.frames = frames
+                updateOverflow()
+            }
+            .overlay(alignment: .leading) {
+                if let target = overflow.leftTarget {
+                    overflowEdge(leading: true, count: overflow.leftCount, target: target, proxy: proxy)
+                }
+            }
+            .overlay(alignment: .trailing) {
+                if let target = overflow.rightTarget {
+                    overflowEdge(leading: false, count: overflow.rightCount, target: target, proxy: proxy)
+                }
+            }
+            .animation(.easeInOut(duration: 0.2), value: overflow)
+        }
+    }
+
+    private func updateOverflow() {
+        let new = stripTracker.overflow(channelBound: visibleChannels.upperBound)
+        if new != overflow { overflow = new }
+    }
+
+    /// The fade and the key at one end of the strips.
+    private func overflowEdge(leading: Bool, count: Int, target: Int, proxy: ScrollViewProxy) -> some View {
+        ZStack(alignment: leading ? .leading : .trailing) {
+            LinearGradient(colors: [Color.black.opacity(0.8), Color.black.opacity(0.35), Color.black.opacity(0)],
+                           startPoint: leading ? .leading : .trailing,
+                           endPoint: leading ? .trailing : .leading)
+                .frame(width: 88)
+                .allowsHitTesting(false)
+            Button {
+                withAnimation(.easeInOut(duration: 0.32)) {
+                    proxy.scrollTo(target, anchor: leading ? .trailing : .leading)
+                }
+            } label: {
+                VStack(spacing: 3) {
+                    Image(systemName: leading ? "chevron.left" : "chevron.right")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(Theme.muteActive)
+                    Text("\(count)")
+                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(Theme.textPrimary)
+                }
+                .frame(width: 30, height: 56)
+                .analogKey(active: false, color: Theme.muteActive, cornerRadius: 5)
+                .shadow(color: Theme.muteActive.opacity(0.5), radius: 7)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(AnalogKeyPressStyle())
+            .padding(.horizontal, 4)
+            .help("\(count) more channel\(count == 1 ? "" : "s") \(leading ? "to the left" : "to the right")")
+        }
+        .transition(.opacity)
+    }
+
+    private var mixPanel: some View {
+        let shape = UnevenRoundedRectangle(topLeadingRadius: 0, bottomLeadingRadius: 6,
+                                           bottomTrailingRadius: 6, topTrailingRadius: 6)
+        let outline = tabColor(tabKey(state.selectedBus)) ?? Theme.tabOutline
+        let analog = AppearanceSettings.shared.look == .analog
+        return HStack(alignment: .top, spacing: 6) {
+            stripScroll
             if state.hasPinnedDawReturn {
                 PinnedDawStrip(state: state)
             }
         }
         .padding(.vertical, 10)
         .padding(.horizontal, 4)
+        .environment(\.mixGlowColor, analog ? outline : nil)
+        .animation(.easeInOut(duration: 0.25), value: state.selectedBus)
         .frame(maxHeight: .infinity, alignment: .top)
         .background {
-            if analog {
-                // The same plate as the open tab, with no colour of its own:
-                // the mix's colour is the lit line on the tab.
-                RaisedFace(shape: shape, panel: true)
-            } else {
-                shape.fill(Theme.tabPanel)
-            }
+            // In the analog look the plate behind the whole block draws it.
+            if !analog { shape.fill(Theme.tabPanel) }
         }
         .overlay {
             if !analog { shape.strokeBorder(outline, lineWidth: 1.5) }

@@ -393,7 +393,7 @@ struct RoutingView: View {
                             let right = group.outputs.first(where: { !$0.isLeft })
                             if let left, let right {
                                 stereoRouteRow(
-                                    group.label,
+                                    state.outputDisplayName(label: group.label),
                                     group.outputs.map(\.displayName).joined(separator: " + "),
                                     left.wValue,
                                     right.wValue

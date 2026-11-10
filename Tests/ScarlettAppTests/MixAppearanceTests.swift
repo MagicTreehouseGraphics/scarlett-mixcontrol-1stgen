@@ -64,4 +64,62 @@ final class MixAppearanceTests: XCTestCase {
         XCTAssertNil(Color(hex: "F2594D"))
         XCTAssertNil(Color(hex: "#F2594"))
     }
+
+    // MARK: - Output fader colours
+
+    func testOutputsStartWithNoColourSoTheirCapsAreSilver() {
+        let s = makeState()
+        XCTAssertEqual(s.outputColorHex(label: "Monitor"), "")
+        XCTAssertTrue(s.outputColors.isEmpty)
+    }
+
+    func testAnOutputColourIsKeptPerPairAndCleanedUp() {
+        let s = makeState()
+        s.userSetOutputColor(label: "Phones", hex: "#4d8cf2")
+        XCTAssertEqual(s.outputColorHex(label: "Phones"), "#4D8CF2")
+        XCTAssertEqual(s.outputColorHex(label: "Monitor"), "")
+    }
+
+    func testChoosingTheDefaultOrABadColourReturnsToSilver() {
+        let s = makeState()
+        s.userSetOutputColor(label: "Phones", hex: "#4D8CF2")
+        s.userSetOutputColor(label: "Phones", hex: "")
+        XCTAssertEqual(s.outputColorHex(label: "Phones"), "")
+        s.userSetOutputColor(label: "Phones", hex: "#4D8CF2")
+        s.userSetOutputColor(label: "Phones", hex: "blue")
+        XCTAssertEqual(s.outputColorHex(label: "Phones"), "")
+        XCTAssertTrue(s.outputColors.isEmpty)
+    }
+
+    // MARK: - Output names
+
+    func testAnOutputIsCalledByItsLabelUntilItIsRenamed() {
+        let s = makeState()
+        XCTAssertEqual(s.outputDisplayName(label: "Monitor"), "Monitor")
+        s.userSetOutputName(label: "Monitor", name: "  Studio monitors ")
+        XCTAssertEqual(s.outputDisplayName(label: "Monitor"), "Studio monitors")
+        XCTAssertEqual(s.outputDisplayName(label: "Phones"), "Phones")
+    }
+
+    func testClearingAnOutputNameBringsBackItsLabel() {
+        let s = makeState()
+        s.userSetOutputName(label: "Phones", name: "Drummer")
+        s.userSetOutputName(label: "Phones", name: "   ")
+        XCTAssertEqual(s.outputDisplayName(label: "Phones"), "Phones")
+        XCTAssertTrue(s.outputNames.isEmpty)
+    }
+
+    func testAnOutputNameIsKeptToTheSameLengthAsAMixName() {
+        let s = makeState()
+        s.userSetOutputName(label: "Phones", name: String(repeating: "x", count: 60))
+        XCTAssertEqual(s.outputDisplayName(label: "Phones").count, MixAppearance.maxNameLength)
+    }
+
+    func testRenamingAnOutputDoesNotTouchItsColourOrItsIdentity() {
+        let s = makeState()
+        s.userSetOutputColor(label: "Phones", hex: "#4D8CF2")
+        s.userSetOutputName(label: "Phones", name: "Drummer")
+        XCTAssertEqual(s.outputColorHex(label: "Phones"), "#4D8CF2")
+        XCTAssertTrue(s.visiblePairLabels.contains("Phones") || !s.visiblePairLabels.isEmpty)
+    }
 }

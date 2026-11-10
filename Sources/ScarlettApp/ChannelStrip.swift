@@ -165,7 +165,16 @@ struct ChannelStrip: View {
                         nameDraft = stored
                         editingName = true
                     }
-                    .help("Double-click to rename")
+                    .help("Double-click, or right-click, to rename")
+                    .contextMenu {
+                        Button("Rename…") {
+                            nameDraft = stored
+                            editingName = true
+                        }
+                        if !stored.isEmpty {
+                            Button("Reset name") { state.userSetChannelName(channel: channel, name: "") }
+                        }
+                    }
             }
         }
     }

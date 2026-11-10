@@ -515,17 +515,12 @@ struct MatrixMixerView: View {
                     proxy.scrollTo(target, anchor: leading ? .trailing : .leading)
                 }
             } label: {
-                VStack(spacing: 3) {
-                    Image(systemName: leading ? "chevron.left" : "chevron.right")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(Theme.muteActive)
-                        .shadow(color: Theme.muteActive.opacity(0.8), radius: 4)
-                    Text("\(count)")
-                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(Theme.textPrimary.opacity(0.9))
-                }
-                // The arrow and number come in after the key has formed, and go
-                // before it, so they are never on their own.
+                Image(systemName: leading ? "chevron.left" : "chevron.right")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(Theme.muteActive)
+                    .shadow(color: Theme.muteActive.opacity(0.8), radius: 4)
+                // The arrow comes in after the key has formed, and goes before
+                // it, so it is never on its own.
                 .opacity(active ? 1 : 0)
                 .animation(soften.delay(active ? 0.3 : 0), value: active)
                 .frame(width: width, height: 64)

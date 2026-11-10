@@ -38,62 +38,89 @@ final class StripTracker {
     }
 }
 
-/// A tab set against one side of a panel, flat where it meets the side and
-/// rounded on its free edge.
-struct EdgeTabShape: Shape {
-    /// True when it is attached to the left side.
+/// The key's outline: a tab of the panel's own material reaching in from the
+/// side over the strips.  Its free end has rounded corners, and where it meets
+/// the margin around the strips it curves smoothly into it, as the mix tabs do
+/// where they meet the panel.  `rect` runs from the panel's outer wall (a
+/// margin's width beyond where the strips start) to the key's free end, and is
+/// the key's height plus a fillet above and below.
+struct EdgeKeyShape {
+    /// True when attached to the left side.
     let leading: Bool
+    /// Width of the margin between the panel's wall and the strips.
+    var margin: CGFloat = 4
+    var fillet: CGFloat = 5
     var radius: CGFloat = 9
 
-    func path(in rect: CGRect) -> Path {
-        let r = min(radius, rect.width, rect.height / 2)
+    private func points(in rect: CGRect) -> (x: (CGFloat) -> CGFloat, wall: CGFloat, join: CGFloat, free: CGFloat) {
+        // Written for the right side, then mirrored for the left.
+        let mirror = { (x: CGFloat) in leading ? rect.minX + rect.maxX - x : x }
+        return (mirror, mirror(rect.maxX), mirror(rect.maxX - margin), mirror(rect.minX))
+    }
+
+    /// The outline from the top join to the bottom join, along the free end only.
+    func outline(in rect: CGRect) -> Path {
+        let (x, _, join, free) = points(in: rect)
+        let f = fillet, r = radius
+        let top = rect.minY, bottom = rect.maxY
+        let dir: CGFloat = leading ? 1 : -1        // from the wall toward the free end
         var p = Path()
-        if leading {
-            p.move(to: CGPoint(x: rect.minX, y: rect.minY))
-            p.addLine(to: CGPoint(x: rect.maxX - r, y: rect.minY))
-            p.addArc(tangent1End: CGPoint(x: rect.maxX, y: rect.minY), tangent2End: CGPoint(x: rect.maxX, y: rect.minY + r), radius: r)
-            p.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - r))
-            p.addArc(tangent1End: CGPoint(x: rect.maxX, y: rect.maxY), tangent2End: CGPoint(x: rect.maxX - r, y: rect.maxY), radius: r)
-            p.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
-        } else {
-            p.move(to: CGPoint(x: rect.maxX, y: rect.minY))
-            p.addLine(to: CGPoint(x: rect.minX + r, y: rect.minY))
-            p.addArc(tangent1End: CGPoint(x: rect.minX, y: rect.minY), tangent2End: CGPoint(x: rect.minX, y: rect.minY + r), radius: r)
-            p.addLine(to: CGPoint(x: rect.minX, y: rect.maxY - r))
-            p.addArc(tangent1End: CGPoint(x: rect.minX, y: rect.maxY), tangent2End: CGPoint(x: rect.minX + r, y: rect.maxY), radius: r)
-            p.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
-        }
+        p.move(to: CGPoint(x: join, y: top))
+        p.addArc(tangent1End: CGPoint(x: join, y: top + f), tangent2End: CGPoint(x: join + dir * f, y: top + f), radius: f)
+        p.addLine(to: CGPoint(x: free - dir * r, y: top + f))
+        p.addArc(tangent1End: CGPoint(x: free, y: top + f), tangent2End: CGPoint(x: free, y: top + f + r), radius: r)
+        p.addLine(to: CGPoint(x: free, y: bottom - f - r))
+        p.addArc(tangent1End: CGPoint(x: free, y: bottom - f), tangent2End: CGPoint(x: free - dir * r, y: bottom - f), radius: r)
+        p.addLine(to: CGPoint(x: join + dir * f, y: bottom - f))
+        p.addArc(tangent1End: CGPoint(x: join, y: bottom - f), tangent2End: CGPoint(x: join, y: bottom), radius: f)
+        _ = x
+        return p
+    }
+
+    /// The filled shape: the outline closed back along the wall.
+    func fill(in rect: CGRect) -> Path {
+        let (_, wall, join, _) = points(in: rect)
+        var p = outline(in: rect)
+        p.addLine(to: CGPoint(x: wall, y: rect.maxY))
+        p.addLine(to: CGPoint(x: wall, y: rect.minY))
+        p.addLine(to: CGPoint(x: join, y: rect.minY))
         p.closeSubpath()
         return p
     }
 }
 
-/// The pocket the edge key sits in: cut from the same plate as the panel, so
-/// it is that colour a little darker rather than black, shaded where the wall
-/// falls into it along its top and inner edge, and lit along its lower lip.
+/// The key's body, drawn in the panel's own grey: the plate's gradient taken at
+/// the height the key sits, so it flows on from the margin around the strips
+/// instead of reading as a separate box, with the plate's bevel round its free
+/// edge and a soft shadow onto the strips it covers.
 struct EdgeKeyPocket: View {
     let leading: Bool
+    /// Height of the tab row + panel block, and of its tab row, to find the
+    /// plate's grey at this height.
+    let blockHeight: CGFloat
+    let tabRowHeight: CGFloat
 
     var body: some View {
-        let shape = EdgeTabShape(leading: leading)
-        shape
-            .fill(LinearGradient(
-                colors: [Color(white: 0.118), Color(white: 0.138)],
-                startPoint: .top, endPoint: .bottom))
-            .overlay {
-                // Shadow cast into the pocket from its wall.
-                shape.fill(LinearGradient(
-                    colors: [Color.black.opacity(0.32), Color.clear],
-                    startPoint: leading ? .leading : .trailing,
-                    endPoint: leading ? .trailing : .leading))
+        GeometryReader { geo in
+            let rect = CGRect(origin: .zero, size: geo.size)
+            let frame = geo.frame(in: .named("mixBlock"))
+            let height = max(blockHeight, 1)
+            let junction = Double(min(tabRowHeight / height, 0.5))
+            let top = MixPlate.face(at: Double(frame.minY / height), junction: junction)
+            let bottom = MixPlate.face(at: Double(frame.maxY / height), junction: junction)
+            let shape = EdgeKeyShape(leading: leading)
+            ZStack {
+                shape.fill(in: rect)
+                    .fill(LinearGradient(colors: [top, bottom], startPoint: .top, endPoint: .bottom))
+                    .shadow(color: Color.black.opacity(0.5), radius: 4, x: leading ? 2 : -2)
+                shape.outline(in: rect)
+                    .stroke(LinearGradient(
+                        stops: [.init(color: Color.white.opacity(0.26), location: 0),
+                                .init(color: Color.white.opacity(0.08), location: 0.5),
+                                .init(color: Color.black.opacity(0.55), location: 1)],
+                        startPoint: .top, endPoint: .bottom), lineWidth: 1)
             }
-            .overlay {
-                shape.stroke(LinearGradient(
-                    stops: [.init(color: Color.black.opacity(0.7), location: 0),
-                            .init(color: Color.white.opacity(0.03), location: 0.55),
-                            .init(color: Color.white.opacity(0.14), location: 1)],
-                    startPoint: .top, endPoint: .bottom), lineWidth: 1)
-            }
+        }
     }
 }
 

@@ -26,6 +26,9 @@ struct MatrixMixerView: View {
     /// doesn't flash "0" on the way out.
     @State private var shownLeft = 0
     @State private var shownRight = 0
+    /// Height of the tab row and panel together, which the edge keys need to
+    /// take the panel's grey at their height.
+    @State private var blockHeight: CGFloat = 0
     private var visibleChannels: Range<Int> {
         let physicalInputs = state.profile.sources.filter {
             $0.category == .analog || $0.category == .digital
@@ -45,6 +48,7 @@ struct MatrixMixerView: View {
                     mixPanel
                 }
                 .coordinateSpace(name: "mixBlock")
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { blockHeight = $0 }
                 .backgroundPreferenceValue(OpenTabFrameKey.self) { tab in
                     if AppearanceSettings.shared.look == .analog {
                         MixPlate(tab: tab, tabHeight: openTabHeight,
@@ -518,9 +522,17 @@ struct MatrixMixerView: View {
                         .font(.system(size: 10, weight: .semibold, design: .monospaced))
                         .foregroundStyle(Theme.textPrimary.opacity(0.9))
                 }
+                // The arrow and number come in after the key has formed, and go
+                // before it, so they are never on their own.
+                .opacity(active ? 1 : 0)
+                .animation(soften.delay(active ? 0.3 : 0), value: active)
                 .frame(width: width, height: 64)
-                .background {
-                    EdgeKeyPocket(leading: leading)
+                .background(alignment: leading ? .leading : .trailing) {
+                    // The key is a piece of the panel: it runs back to the
+                    // panel's wall and curves into the margin beside the strips.
+                    EdgeKeyPocket(leading: leading, blockHeight: blockHeight, tabRowHeight: openTabHeight)
+                        .frame(width: width + 4, height: 64 + 10)
+                        .offset(x: leading ? -4 : 4)
                         .opacity(active ? 1 : 0)
                         .animation(soften, value: active)
                 }

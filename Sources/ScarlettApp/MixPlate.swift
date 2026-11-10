@@ -66,6 +66,26 @@ struct OpenTabPlate: Shape {
     }
 }
 
+extension MixPlate {
+    /// The plate's grey at each height as (position 0…1, white), the junction
+    /// being where the tab ends and the panel starts.
+    static func faceStops(junction: Double) -> [(location: Double, white: Double)] {
+        [(0, 0.262), (junction, 0.215), (junction + (1 - junction) * 0.33, 0.158), (1, 0.105)]
+    }
+
+    /// The plate's grey at `fraction` of the way down the block.
+    static func face(at fraction: Double, junction: Double) -> Color {
+        let stops = faceStops(junction: junction)
+        let t = min(max(fraction, 0), 1)
+        for (lower, upper) in zip(stops, stops.dropFirst()) where t <= upper.location {
+            let span = upper.location - lower.location
+            let u = span > 0 ? (t - lower.location) / span : 0
+            return Color(white: lower.white + (upper.white - lower.white) * u)
+        }
+        return Color(white: stops.last?.white ?? 0.1)
+    }
+}
+
 /// The raised plate behind the open tab and the mix panel, drawn once so they
 /// read as a single piece: one lit gradient from the top of the tab to the
 /// bottom of the panel, one bevel around the whole outline, one shadow.  The
@@ -85,10 +105,9 @@ struct MixPlate: View {
                                      tabHeight: tabHeight, hasTab: tab != nil)
             plate
                 .fill(LinearGradient(
-                    stops: [.init(color: Color(white: 0.262), location: 0),
-                            .init(color: Theme.faceTop, location: junction),
-                            .init(color: Theme.faceMid, location: junction + (1 - junction) * 0.33),
-                            .init(color: Theme.faceBottom, location: 1)],
+                    stops: Self.faceStops(junction: junction).map {
+                        .init(color: Color(white: $0.white), location: $0.location)
+                    },
                     startPoint: .top, endPoint: .bottom))
                 .overlay {
                     plate.fill(LinearGradient(

@@ -35,6 +35,8 @@ final class DesignPreview: XCTestCase {
                          to: dir.appendingPathComponent("page.png"))
         try renderWindow(page(state, spare: 0), size: CGSize(width: 2500, height: 780),
                          to: dir.appendingPathComponent("page-wide.png"))
+        try renderWindow(page(sampleState(profile: .scarlett18i20), spare: 0), size: CGSize(width: 1500, height: 780),
+                         to: dir.appendingPathComponent("page-18i20.png"))
         state.selectedBus = state.matrixBuses[2]
         try renderWindow(page(state, spare: 140), size: CGSize(width: 1500, height: 780),
                          to: dir.appendingPathComponent("page-second.png"))
@@ -235,10 +237,12 @@ final class DesignPreview: XCTestCase {
 
     // MARK: - Sample state
 
-    private func sampleState() -> MixerState {
-        let state = MixerState(autoConnect: false)
-        let sources: [SignalSource] = [.analog1, .analog2, .analog3, .analog4, .daw3, .daw4,
-                                       .spdif1, .spdif2, .daw5, .daw6]
+    private func sampleState(profile: DeviceProfile = .scarlett8i6) -> MixerState {
+        let state = MixerState(autoConnect: false, profile: profile)
+        let sources: [SignalSource] = profile == .scarlett8i6
+            ? [.analog1, .analog2, .analog3, .analog4, .daw3, .daw4, .spdif1, .spdif2, .daw5, .daw6]
+            : [.analog1, .analog2, .analog3, .analog4, .analog5, .analog6, .analog7, .analog8,
+               .spdif1, .spdif2, .adat1, .adat2, .adat3, .adat4, .adat5, .adat6, .adat7, .adat8]
         for (ch, source) in sources.enumerated() {
             state.userSetMixerSource(channel: ch, source: source)
         }

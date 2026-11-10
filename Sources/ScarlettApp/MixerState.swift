@@ -79,7 +79,11 @@ final class MixerState {
     var serial: String = "—"
 
     /// Active device profile — falls back to 8i6 layout before connect.
-    var profile: DeviceProfile { device?.profile ?? .scarlett8i6 }
+    var profile: DeviceProfile { device?.profile ?? fallbackProfile }
+
+    /// What the state looks like with no device: the 8i6, unless a test or
+    /// preview asks for another model.
+    @ObservationIgnored private(set) var fallbackProfile: DeviceProfile = .scarlett8i6
 
     /// Mix buses M1..Mn for the connected device.
     var matrixBuses: [MixBus] { profile.matrixOutputBuses }
@@ -333,9 +337,16 @@ final class MixerState {
         }
     }
 
-    /// `autoConnect: false` leaves the state detached from any hardware, for tests.
-    init(autoConnect: Bool = true) {
-        guard autoConnect else { return }
+    /// `autoConnect: false` leaves the state detached from any hardware, for
+    /// tests; `profile` is then the model it pretends to be.
+    init(autoConnect: Bool = true, profile: DeviceProfile = .scarlett8i6) {
+        guard autoConnect else {
+            if profile != .scarlett8i6 {
+                fallbackProfile = profile
+                prepareState(for: profile)
+            }
+            return
+        }
         installCoreAudioListener()
         // Defer USB work so the window can appear before we sync-read the
         // matrix (100+ control transfers when a device is connected).

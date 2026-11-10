@@ -132,6 +132,7 @@ struct VerticalFader: View {
             }
         }
         .contentShape(Rectangle())
+        .cursor(.resizeUpDown)
         .gesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { drag in

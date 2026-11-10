@@ -220,6 +220,7 @@ struct OutputStrip: View {
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .cursor(.pointingHand)
                     .help("Click to rename this output" + (hasGainStage ? " and choose its fader color" : ""))
                 } else {
                     Color.clear
@@ -389,6 +390,7 @@ struct OutputStrip: View {
                     .clipShape(RoundedRectangle(cornerRadius: 4))
             }
             .buttonStyle(.plain)
+            .cursor(.pointingHand)
             .frame(height: StripLayout.controlsHeight)
             .help("This digital output plays its source at fixed level. It's fed from \(leftSource.displayName) — click to open that mix's faders, which set this output's level.")
         } else {

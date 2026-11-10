@@ -133,5 +133,6 @@ struct EdgeKeyPressStyle: ButtonStyle {
             .offset(x: configuration.isPressed ? (leading ? -2 : 2) : 0)
             .brightness(configuration.isPressed ? -0.18 : 0)
             .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
+            .cursor(.pointingHand)
     }
 }

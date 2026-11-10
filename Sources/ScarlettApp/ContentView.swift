@@ -142,6 +142,7 @@ struct ContentView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 4))
             }
             .buttonStyle(.plain)
+            .cursor(.pointingHand)
             .help(sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar")
             .accessibilityLabel(sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar")
         }
@@ -272,6 +273,7 @@ struct ContentView: View {
             .padding(.horizontal, sidebarCollapsed ? 6 : 8)
         }
         .buttonStyle(.plain)
+        .cursor(.pointingHand)
         .help(sidebarCollapsed ? item.label : "")
     }
 

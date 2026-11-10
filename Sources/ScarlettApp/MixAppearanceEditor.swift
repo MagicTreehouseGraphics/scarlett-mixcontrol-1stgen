@@ -87,6 +87,7 @@ struct MixAppearanceEditor: View {
             .overlay(Circle().strokeBorder(Color.white.opacity(selected ? 0.9 : 0), lineWidth: 2).padding(-3))
         }
         .buttonStyle(.plain)
+        .cursor(.pointingHand)
         .help(help ?? hex)
     }
 }
@@ -124,6 +125,7 @@ struct HueBar: View {
                 }
             )
         }
+        .cursor(.resizeLeftRight)
         .help("Drag to pick any color")
     }
 
@@ -208,6 +210,7 @@ struct OutputAppearanceEditor: View {
                 .overlay(Circle().strokeBorder(Color.white.opacity(selected ? 0.9 : 0), lineWidth: 2).padding(-3))
         }
         .buttonStyle(.plain)
+        .cursor(.pointingHand)
         .help(color == nil ? "Silver (default)" : hex)
     }
 }

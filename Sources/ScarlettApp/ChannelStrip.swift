@@ -486,6 +486,7 @@ struct StripReadout: View {
                      color: peak >= DbAxis.clip ? Theme.failure : Theme.textSecondary.opacity(0.8))
             }
             .buttonStyle(.plain)
+            .cursor(.pointingHand)
             .help(resetHelp)
         }
     }

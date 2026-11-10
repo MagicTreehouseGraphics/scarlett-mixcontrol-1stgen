@@ -253,6 +253,7 @@ struct MatrixMixerView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .cursor(.pointingHand)
         .contextMenu { copyMixMenuItems(for: bus) }
     }
 
@@ -277,6 +278,7 @@ struct MatrixMixerView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .cursor(.pointingHand)
         .contextMenu { copyMixMenuItems(for: bus) }
     }
 

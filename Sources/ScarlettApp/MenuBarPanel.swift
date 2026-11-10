@@ -422,6 +422,7 @@ private struct PanelPeakReadout: View {
                         color: peak >= DbAxis.clip ? Theme.failure : Theme.textSecondary.opacity(0.8))
         }
         .buttonStyle(.plain)
+        .cursor(.pointingHand)
         .help("Max peak since the last reset. Click to reset.")
         .accessibilityLabel("Max peak")
         .accessibilityHint("Resets the max peak")
@@ -477,6 +478,7 @@ private struct HorizontalFader: View {
             )
         }
         .frame(height: 20)
+        .cursor(.resizeLeftRight)
         .accessibilityElement()
         .accessibilityLabel("\(label) volume")
         .accessibilityValue(db <= DbAxis.off ? "off" : "\(DbAxis.format(db)) dB")

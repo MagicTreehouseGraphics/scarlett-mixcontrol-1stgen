@@ -93,6 +93,7 @@ struct PillButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .opacity(isEnabled ? (configuration.isPressed ? 0.75 : 1) : 0.5)
+            .cursor(.pointingHand, when: isEnabled)
     }
 }
 
@@ -360,6 +361,7 @@ struct AnalogKeyPressStyle: ButtonStyle {
             .offset(y: analog && configuration.isPressed ? 1 : 0)
             .brightness(analog && configuration.isPressed ? -0.1 : 0)
             .opacity(!analog && configuration.isPressed ? 0.7 : 1)
+            .cursor(.pointingHand)
     }
 }
 

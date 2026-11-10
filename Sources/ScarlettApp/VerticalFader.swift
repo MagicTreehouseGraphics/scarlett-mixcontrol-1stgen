@@ -113,6 +113,7 @@ struct VerticalFader: View {
     /// output faders); nil is the matte silver cap of the channel faders.
     var tint: Color?
     @Environment(\.faderHeight) private var height
+    @State private var dragging = false
 
     static let knobHeight: CGFloat = 32
     private let trackWidth: CGFloat = 11
@@ -132,12 +133,14 @@ struct VerticalFader: View {
             }
         }
         .contentShape(Rectangle())
-        .cursor(.resizeUpDown)
+        .grabCursor(dragging: dragging)
         .gesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { drag in
+                    dragging = true
                     db = axis.db(atY: drag.location.y, height: height)
                 }
+                .onEnded { _ in dragging = false }
         )
         .simultaneousGesture(TapGesture(count: 2).onEnded { db = 0 })
     }

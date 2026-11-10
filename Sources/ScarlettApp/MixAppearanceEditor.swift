@@ -95,6 +95,7 @@ struct MixAppearanceEditor: View {
 /// A rainbow bar to pick any hue, for colours the swatches don't have.
 struct HueBar: View {
     @Binding var hex: String
+    @State private var dragging = false
 
     private let thumb: CGFloat = 14
 
@@ -119,13 +120,16 @@ struct HueBar: View {
             .frame(height: geo.size.height)
             .contentShape(Rectangle())
             .gesture(
-                DragGesture(minimumDistance: 0).onChanged { drag in
-                    let hue = max(0, min(1, Double((drag.location.x - thumb / 2) / usable)))
-                    hex = Self.color(hue: hue).hexString ?? hex
-                }
+                DragGesture(minimumDistance: 0)
+                    .onChanged { drag in
+                        dragging = true
+                        let hue = max(0, min(1, Double((drag.location.x - thumb / 2) / usable)))
+                        hex = Self.color(hue: hue).hexString ?? hex
+                    }
+                    .onEnded { _ in dragging = false }
             )
         }
-        .cursor(.resizeLeftRight)
+        .grabCursor(dragging: dragging)
         .help("Drag to pick any color")
     }
 

@@ -62,7 +62,7 @@ struct HorizontalSlider: View {
         }
         .frame(height: 14)
         .opacity(isEnabled ? 1 : 0.4)
-        .cursor(.resizeLeftRight, when: isEnabled)
+        .grabCursor(dragging: grabOffset != nil, when: isEnabled)
     }
 
     private func x(for value: Double, usable: CGFloat) -> CGFloat {

@@ -478,7 +478,7 @@ private struct HorizontalFader: View {
             )
         }
         .frame(height: 20)
-        .cursor(.resizeLeftRight)
+        .grabCursor(dragging: dragStartX != nil)
         .accessibilityElement()
         .accessibilityLabel("\(label) volume")
         .accessibilityValue(db <= DbAxis.off ? "off" : "\(DbAxis.format(db)) dB")

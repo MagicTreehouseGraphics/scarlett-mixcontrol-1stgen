@@ -117,9 +117,12 @@ final class MixAppearanceTests: XCTestCase {
 
     func testRenamingAnOutputDoesNotTouchItsColourOrItsIdentity() {
         let s = makeState()
+        s.visiblePairLabels = ["Monitor", "Phones"]
         s.userSetOutputColor(label: "Phones", hex: "#4D8CF2")
         s.userSetOutputName(label: "Phones", name: "Drummer")
         XCTAssertEqual(s.outputColorHex(label: "Phones"), "#4D8CF2")
-        XCTAssertTrue(s.visiblePairLabels.contains("Phones") || !s.visiblePairLabels.isEmpty)
+        // The pair is still shown, and still known, under its label.
+        XCTAssertEqual(s.visiblePairLabels, ["Monitor", "Phones"])
+        XCTAssertEqual(s.outputNames.keys.sorted(), ["Phones"])
     }
 }

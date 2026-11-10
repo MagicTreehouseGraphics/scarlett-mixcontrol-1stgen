@@ -75,28 +75,18 @@ struct ChannelStrip: View {
 
     @ViewBuilder
     private func inputSwitch(source: SignalSource) -> some View {
-        switch source {
-        case .analog1:
+        switch state.profile.inputSwitch(for: source) {
+        case .impedance(let input)?:
             ImpedanceSwitch(value: Binding(
-                get: { state.impedance1 },
-                set: { state.userSetImpedance(channel: 1, mode: $0) }
+                get: { input == 1 ? state.impedance1 : state.impedance2 },
+                set: { state.userSetImpedance(channel: input, mode: $0) }
             ))
-        case .analog2:
-            ImpedanceSwitch(value: Binding(
-                get: { state.impedance2 },
-                set: { state.userSetImpedance(channel: 2, mode: $0) }
-            ))
-        case .analog3:
+        case .hiLo(let input)?:
             HiLoSwitch(value: Binding(
-                get: { state.hi3 },
-                set: { state.userSetHiLo(channel: 3, hi: $0) }
+                get: { input == 3 ? state.hi3 : state.hi4 },
+                set: { state.userSetHiLo(channel: input, hi: $0) }
             ))
-        case .analog4:
-            HiLoSwitch(value: Binding(
-                get: { state.hi4 },
-                set: { state.userSetHiLo(channel: 4, hi: $0) }
-            ))
-        default:
+        case nil:
             // Reserve the same vertical footprint so every strip aligns.
             Color.clear.frame(height: 22)
         }

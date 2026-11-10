@@ -883,10 +883,11 @@ final class MixerState {
         if let v = try? dev.getClockSource()              { clock = v }
         if let v = try? dev.getSampleRate()               { sampleRate = v }
         if let v = try? dev.getSyncLocked()               { syncLocked = v }
-        if let v = try? dev.getImpedance(channel: 0)      { impedance1 = v }
-        if let v = try? dev.getImpedance(channel: 1)      { impedance2 = v }
-        if let v = try? dev.getHiLoGain(channel: 3)       { hi3 = v }
-        if let v = try? dev.getHiLoGain(channel: 4)       { hi4 = v }
+        // Only the switches this model has: the 18i20's are physical buttons.
+        if profile.impedanceChannels.contains(1), let v = try? dev.getImpedance(channel: 0) { impedance1 = v }
+        if profile.impedanceChannels.contains(2), let v = try? dev.getImpedance(channel: 1) { impedance2 = v }
+        if profile.hiLoChannels.contains(3), let v = try? dev.getHiLoGain(channel: 3) { hi3 = v }
+        if profile.hiLoChannels.contains(4), let v = try? dev.getHiLoGain(channel: 4) { hi4 = v }
         if let v = try? dev.getMute(.master)              { masterMuted = v }
         // Read every physical output's gain stage (stage = wValue + 1).
         // Per-side mutes are kept as-is; the pair fader shows the L/R average.

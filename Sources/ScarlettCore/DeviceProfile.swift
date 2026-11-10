@@ -677,3 +677,31 @@ extension DeviceProfile {
         (0..<mixBusCount).map { MixBus.fromMatrixIndex($0) }
     }
 }
+
+
+/// A software-controlled switch on an analogue input.
+public enum InputSwitch: Equatable, Sendable {
+    /// Line / Instrument, on analogue input `input` (1-based).
+    case impedance(input: Int)
+    /// Lo / Hi gain range, on analogue input `input` (1-based).
+    case hiLo(input: Int)
+}
+
+extension DeviceProfile {
+    /// The switch this model lets software set for the analogue input that
+    /// `source` carries, or nil.  Not every model has them: on the 18i20 the
+    /// INST, PAD and 48 V switches are physical front-panel buttons.
+    public func inputSwitch(for source: SignalSource) -> InputSwitch? {
+        let input: Int
+        switch source {
+        case .analog1: input = 1
+        case .analog2: input = 2
+        case .analog3: input = 3
+        case .analog4: input = 4
+        default: return nil
+        }
+        if impedanceChannels.contains(input) { return .impedance(input: input) }
+        if hiLoChannels.contains(input) { return .hiLo(input: input) }
+        return nil
+    }
+}

@@ -155,4 +155,22 @@ final class DeviceProfileTests: XCTestCase {
         XCTAssertEqual(phones.map(\.wValue), [2, 3, 4, 5])
         XCTAssertEqual(phones.map(\.pairLabel), ["Phones 1", "Phones 1", "Phones 2", "Phones 2"])
     }
+
+    func testOnlyModelsWithSoftwareSwitchesShowThem() {
+        XCTAssertEqual(DeviceProfile.scarlett8i6.inputSwitch(for: .analog1), .impedance(input: 1))
+        XCTAssertEqual(DeviceProfile.scarlett8i6.inputSwitch(for: .analog3), .hiLo(input: 3))
+        XCTAssertNil(DeviceProfile.scarlett8i6.inputSwitch(for: .analog5))
+        XCTAssertNil(DeviceProfile.scarlett8i6.inputSwitch(for: .daw1))
+    }
+
+    func testThe18i20HasNoSoftwareInputSwitches() {
+        for source in SignalSource.allCases {
+            XCTAssertNil(DeviceProfile.scarlett18i20.inputSwitch(for: source), "\(source)")
+        }
+    }
+
+    func testTheCompactModelsWithoutHiLoOnlyOfferInstrumentSwitches() {
+        XCTAssertEqual(DeviceProfile.scarlett18i6.inputSwitch(for: .analog2), .impedance(input: 2))
+        XCTAssertNil(DeviceProfile.scarlett18i6.inputSwitch(for: .analog3))
+    }
 }

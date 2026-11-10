@@ -170,7 +170,16 @@ public final class ScarlettDevice {
 
     /// Class request, IN (Device→Host).  bmRequestType = 0xa1.
     public func controlIn(cmd: UInt8, value: UInt16, index: UInt16, length: UInt16) throws -> [UInt8] {
+        try controlInReport(cmd: cmd, value: value, index: index, length: length).bytes
+    }
+
+    /// `controlIn`, also saying how many bytes the device really sent back.  A
+    /// device that has less data than was asked for sends a shorter reply, which
+    /// is how a read-only probe can tell how big something is.
+    public func controlInReport(cmd: UInt8, value: UInt16, index: UInt16,
+                                length: UInt16) throws -> (bytes: [UInt8], received: Int) {
         var buf = [UInt8](repeating: 0, count: Int(length))
+        var received: UInt32 = 0
         let kr = buf.withUnsafeMutableBufferPointer { bp -> IOReturn in
             var req = IOUSBDevRequest(
                 bmRequestType: 0xa1,
@@ -181,7 +190,9 @@ public final class ScarlettDevice {
                 pData: bp.baseAddress,
                 wLenDone: 0
             )
-            return iface.pointee!.pointee.DeviceRequest(iface, &req)
+            let result = iface.pointee!.pointee.DeviceRequest(iface, &req)
+            received = req.wLenDone
+            return result
         }
         guard kr == kIOReturnSuccess else {
             throw ScarlettError.ioReturn(
@@ -190,7 +201,7 @@ public final class ScarlettDevice {
                 kr
             )
         }
-        return buf
+        return (buf, Int(received))
     }
 
     // MARK: - Device info

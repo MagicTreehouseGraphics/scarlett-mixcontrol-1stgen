@@ -128,6 +128,10 @@ usage: scarlett-cli <command> [args]
   meters [--watch]
       Read input/DAW/mixer peak meters once, or poll every 50ms.
 
+  probe-mixes
+      Read-only: ask for more meters than expected and report how many the
+      hardware really sends back (mix buses, DAW outputs, inputs).
+
   set-impedance <1|2> <line|inst>
       Combo inputs 1 and 2 — line or instrument impedance.
 
@@ -241,6 +245,35 @@ func main() throws {
             let rawHex = raw.map { String(format: "%02x", $0) }.joined(separator: " ")
             let g = tryRead("mgain") { String(format: "%.1f dB", try dev.getMixerGain(channel: 0, bus: bus)) }
             print("  \(bus)  \(g)   [raw: \(rawHex)]")
+        }
+
+    case "probe-mixes":
+        // Read-only.  Asks for more meters than the model is known to have and
+        // reports how many bytes come back: a device with 16 mix buses should
+        // send 16 mix meters, one with 8 should stop at 8.
+        print("\(dev.profile.displayName)  (mixBusCount in the app: \(dev.profile.mixBusCount))")
+        let meters: [(name: String, value: UInt16, lengths: [UInt16])] = [
+            ("mix meters",   0x0001, [16, 32, 64]),
+            ("DAW meters",   0x0003, [40, 64]),
+            ("input meters", 0x0000, [36, 64]),
+        ]
+        for meter in meters {
+            for length in meter.lengths {
+                do {
+                    let (bytes, received) = try dev.controlInReport(
+                        cmd: 0x03, value: meter.value, index: 0x3c00, length: length)
+                    let used = Array(bytes.prefix(received))
+                    let levels = (0..<(received / 2)).map { i -> String in
+                        let v = UInt16(used[2 * i]) | (UInt16(used[2 * i + 1]) << 8)
+                        return v == 0 ? "-inf" : String(format: "%.0f", 20 * log10(Double(v) / 65536))
+                    }
+                    print(String(format: "%@ asked %2d bytes -> got %2d bytes (%d meters): %@",
+                                 meter.name as NSString, length, received, received / 2,
+                                 levels.joined(separator: " ") as NSString))
+                } catch {
+                    print("\(meter.name) asked \(length) bytes -> \(error)")
+                }
+            }
         }
 
     case "info":

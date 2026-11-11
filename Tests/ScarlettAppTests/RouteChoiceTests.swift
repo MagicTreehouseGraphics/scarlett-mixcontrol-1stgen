@@ -99,6 +99,30 @@ final class RouteChoiceTests: XCTestCase {
         XCTAssertEqual(s.routeChoice(for: target), .mixPair(0))
     }
 
+    func testCapturePairsStartAtFactoryAndResetToIt() {
+        let s = makeState()
+        for (channel, source) in s.profile.defaultCaptureSources.enumerated() { s.captureRoutes[channel] = source }
+        let target = RouteTarget.capture(pair: 1)
+        XCTAssertTrue(s.isRouteAtFactory(target))
+        XCTAssertFalse(s.captureDiffersFromFactory)
+        XCTAssertNotNil(s.factoryRouteName(target))
+
+        s.userSetRouteChoice(.mixPair(0), for: target)
+        XCTAssertFalse(s.isRouteAtFactory(target))
+        XCTAssertTrue(s.isRouteAtFactory(.capture(pair: 0)))
+        XCTAssertTrue(s.captureDiffersFromFactory)
+
+        s.resetCaptureRoutesToFactory()
+        XCTAssertTrue(s.isRouteAtFactory(target))
+        XCTAssertFalse(s.captureDiffersFromFactory)
+    }
+
+    func testOutputsHaveNoFactoryMarker() {
+        let s = makeState()
+        XCTAssertTrue(s.isRouteAtFactory(.output(label: label(s, 0))))
+        XCTAssertNil(s.factoryRouteName(.output(label: label(s, 0))))
+    }
+
     func testAPairThatDoesNotExistIsIgnored() {
         let s = makeState()
         s.userSetRouteChoice(.mixPair(0), for: .capture(pair: 99))

@@ -85,6 +85,40 @@ extension MixerState {
         }
     }
 
+    /// What the factory setup feeds a USB capture channel: its own input.
+    private func factoryCaptureSource(channel: Int) -> MixBus? {
+        profile.defaultCaptureSources.indices.contains(channel) ? profile.defaultCaptureSources[channel] : nil
+    }
+
+    /// Whether a capture pair still has its factory routing.  Always true for
+    /// outputs, which have no factory routing to compare with.
+    func isRouteAtFactory(_ target: RouteTarget) -> Bool {
+        guard case .capture(let pair) = target, let c = captureChannels(pair) else { return true }
+        return [c.left, c.right].allSatisfy { channel in
+            factoryCaptureSource(channel: channel).map { captureRoutes[channel] == $0 } ?? true
+        }
+    }
+
+    /// What a capture pair's factory routing is called, such as "Analog 1+2".
+    func factoryRouteName(_ target: RouteTarget) -> String? {
+        guard case .capture(let pair) = target, let c = captureChannels(pair),
+              let left = factoryCaptureSource(channel: c.left),
+              let right = factoryCaptureSource(channel: c.right) else { return nil }
+        return routeChoiceName(RouteChoice.from(left: left, right: right, mixPairLinked: isMixPairLinked))
+    }
+
+    /// True when any USB capture channel is not on its factory source.
+    var captureDiffersFromFactory: Bool {
+        profile.defaultCaptureSources.enumerated().contains { captureRoutes[$0.offset] != $0.element }
+    }
+
+    /// Puts every USB capture channel back on its own input.
+    func resetCaptureRoutesToFactory() {
+        for (channel, source) in profile.defaultCaptureSources.enumerated() where captureRoutes[channel] != source {
+            userSetCaptureRoute(channel: channel, to: source)
+        }
+    }
+
     /// Routes a pair's two sides, pushing both to the device.
     func setRouteSides(_ target: RouteTarget, left: MixBus, right: MixBus) {
         switch target {

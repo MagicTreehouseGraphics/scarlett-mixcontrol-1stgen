@@ -419,6 +419,11 @@ struct RoutingView: View {
                                 pair*2, pair*2 + 1
                             )
                         }
+                        HStack {
+                            Spacer()
+                            Button("Reset to straight-through") { state.resetCaptureRoutesToFactory() }
+                                .disabled(!state.captureDiffersFromFactory)
+                        }
                     }
                 }
 

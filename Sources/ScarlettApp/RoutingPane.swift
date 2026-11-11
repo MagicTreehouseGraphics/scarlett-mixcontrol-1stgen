@@ -49,8 +49,16 @@ struct RoutingPane: View {
                     MixPlate(tab: frame, tabHeight: openTabHeight, glow: Theme.tabOutline)
                 }
 
-                Text("The 1st-gen Scarletts can't report their routing back, so this app remembers your last setup and sends it again at launch.")
-                    .font(.caption).foregroundStyle(Theme.textSecondary)
+                HStack(alignment: .firstTextBaseline) {
+                    Text("The app reads the capture routing from the interface. Output routing is remembered by the app and sent again at launch.")
+                        .font(.caption).foregroundStyle(Theme.textSecondary)
+                    Spacer()
+                    if tab == .capture {
+                        Button("Reset to straight-through") { state.resetCaptureRoutesToFactory() }
+                            .disabled(!state.captureDiffersFromFactory)
+                            .help("Send every USB capture channel its own input again: Analog 1+2 on DAW inputs 1+2, and so on.")
+                    }
+                }
             }
             .padding(24)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -63,7 +71,7 @@ struct RoutingPane: View {
         case .outputs:
             return "Pick what feeds each pair of outputs. Link keys choose left and right together; unlink a pair to choose its two sides separately."
         case .capture:
-            return "Pick what your DAW receives on each pair of its inputs."
+            return "Pick what your DAW records on each pair of its inputs. Out of the box each one hears its own input, so Analog 1+2 arrives in the DAW as inputs 1+2."
         }
     }
 
@@ -209,10 +217,19 @@ struct RoutingStrip: View {
                 .foregroundStyle(Theme.textPrimary)
                 .lineLimit(1)
                 .truncationMode(.tail)
-            Text(subtitle)
-                .font(.system(size: 9))
-                .foregroundStyle(Theme.textSecondary)
-                .lineLimit(1)
+            HStack(spacing: 4) {
+                Text(subtitle)
+                    .font(.system(size: 9))
+                    .foregroundStyle(Theme.textSecondary)
+                    .lineLimit(1)
+                if !state.isRouteAtFactory(target) {
+                    Circle()
+                        .fill(Theme.muteActive)
+                        .frame(width: 5, height: 5)
+                        .help("Differs from the factory setup (\(state.factoryRouteName(target) ?? "its own input")).")
+                        .accessibilityLabel("Differs from the factory setup")
+                }
+            }
             Rectangle()
                 .fill(state.routeColor(for: target) ?? Theme.textSecondary.opacity(0.5))
                 .frame(height: 2)

@@ -595,6 +595,12 @@ extension ScarlettDevice {
         return profile.mixBus(fromWireByte: r[0])
     }
 
+    /// What feeds USB capture channel `channel` (0-based), as the device reports it.
+    public func getCaptureRoute(channel: Int) throws -> MixBus {
+        let r = try controlIn(cmd: 0x01, value: UInt16(channel), index: 0x3400, length: 2)
+        return profile.mixBus(fromWireByte: r[0])
+    }
+
     public func getMute(_ bus: SignalOut) throws -> Bool {
         let r = try controlIn(cmd: 0x01, value: 0x0100 + bus.rawValue, index: 0x0a00, length: 2)
         return r[0] != 0

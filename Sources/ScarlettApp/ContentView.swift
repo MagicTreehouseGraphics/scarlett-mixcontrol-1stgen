@@ -415,7 +415,7 @@ struct RoutingView: View {
                     }
                 }
 
-                Text("Tip: routing reads always return 00 00 on 1st-gen Scarletts — this app remembers your last setup in UserDefaults and re-pushes it to the device on launch.")
+                Text("Tip: output routing is remembered by the app and re-sent at launch; capture routing is read from the interface.")
                     .font(.caption).foregroundStyle(Theme.textSecondary)
             }
             .padding(24)

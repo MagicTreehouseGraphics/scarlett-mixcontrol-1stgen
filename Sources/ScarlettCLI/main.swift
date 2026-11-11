@@ -128,6 +128,10 @@ usage: scarlett-cli <command> [args]
   meters [--watch]
       Read input/DAW/mixer peak meters once, or poll every 50ms.
 
+  probe-capture
+      Read-only: print what the hardware answers when asked which source feeds
+      each USB capture channel.
+
   probe-mixes
       Read-only: ask for more meters than expected and report how many the
       hardware really sends back (mix buses, DAW outputs, inputs).
@@ -274,6 +278,23 @@ func main() throws {
                     print("\(meter.name) asked \(length) bytes -> \(error)")
                 }
             }
+        }
+
+    case "probe-capture":
+        // Read-only.  Does the hardware report which source feeds each USB
+        // capture channel?  Output routing is known to answer 00 00 whatever
+        // is set, so those reads are printed beside it.
+        print("\(dev.profile.displayName)")
+        func hex(_ bytes: [UInt8]) -> String { bytes.map { String(format: "%02x", $0) }.joined(separator: " ") }
+        print("capture channel -> bytes (wValue = channel, wIndex 0x3400)")
+        for channel in 0..<(dev.profile.captureChannelCount + dev.profile.loopbackChannelCount) {
+            let reply = try? dev.controlIn(cmd: 0x01, value: UInt16(channel), index: 0x3400, length: 2)
+            print(String(format: "  capture %2d: %@", channel + 1, reply.map(hex) ?? "(no reply)"))
+        }
+        print("output routing for comparison (wIndex 0x3300)")
+        for output in dev.profile.physicalOutputs.prefix(6) {
+            let reply = try? dev.controlIn(cmd: 0x01, value: output.wValue, index: 0x3300, length: 2)
+            print(String(format: "  %@: %@", output.displayName, reply.map(hex) ?? "(no reply)"))
         }
 
     case "info":

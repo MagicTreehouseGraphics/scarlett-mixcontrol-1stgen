@@ -258,6 +258,8 @@ final class MixerState {
     /// input channels.  6 entries (DAW input 1..6).  Default values mirror
     /// what MixControl applies on first launch: capture 1..4 = Analog 1..4,
     /// capture 5..6 = S/PDIF 1..2.  Persisted to UserDefaults like routes.
+    /// True once `captureRoutes` holds what the hardware reported rather than a saved guess.
+    private(set) var captureRoutesFromDevice = false
     var captureRoutes: [Int: MixBus] = [
         0: .analog1, 1: .analog2, 2: .analog3, 3: .analog4,
         4: .spdif1,  5: .spdif2,
@@ -576,6 +578,7 @@ final class MixerState {
         routes = Dictionary(uniqueKeysWithValues:
             profile.physicalOutputs.map { ($0.wValue, MixBus.off) })
         captureRoutes = [:]
+        captureRoutesFromDevice = false
         selectedBus = profile.matrixOutputBuses.first ?? .m1
 
         pairAttens = [:]
@@ -690,8 +693,9 @@ final class MixerState {
             }
         }
 
-        // Capture routes — load from UserDefaults but do NOT push at launch.
-        if let data = defaults.data(forKey: captureRoutesKey(for: profile)),
+        // Capture routes — only a fallback when the hardware didn't report
+        // them; never pushed at launch.
+        if !captureRoutesFromDevice, let data = defaults.data(forKey: captureRoutesKey(for: profile)),
            let dict = try? JSONDecoder().decode([UInt16: UInt8].self, from: data) {
             for (chRaw, busRaw) in dict {
                 guard Int(chRaw) < profile.captureChannelCount + profile.loopbackChannelCount,
@@ -909,7 +913,18 @@ final class MixerState {
                 pairAttens[left] = attens.reduce(0, +) / Double(attens.count)
             }
         }
-        // Routing GETs are still not trustworthy: byte 0x00 decodes to
+        // Capture routing answers with the real source on the 18i20 (checked
+        // against hardware).  Replies that are all 00 00 look like a device
+        // that doesn't answer, so those are ignored.
+        let captureCount = profile.captureChannelCount + profile.loopbackChannelCount
+        let capture = (0..<captureCount).compactMap { channel in
+            (try? dev.getCaptureRoute(channel: channel)).map { (channel, $0) }
+        }
+        if capture.count == captureCount, !capture.allSatisfy({ $0.1 == .daw1 }) {
+            captureRoutes = Dictionary(uniqueKeysWithValues: capture)
+            captureRoutesFromDevice = true
+        }
+        // Output routing GETs are not trustworthy on every model: byte 0x00 decodes to
         // .daw1, which is also what we'd get from a "null" 00 00 response.
         // We can't distinguish "device says DAW 1" from "device says
         // nothing" with a single read. Rely on UserDefaults to restore the

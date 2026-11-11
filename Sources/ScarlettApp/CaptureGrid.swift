@@ -69,7 +69,7 @@ private struct CaptureCell: View {
 
     private func picker(_ bus: MixBus) -> some View {
         let binding = Binding(get: { bus }, set: { state.userSetCaptureRoute(channel: channel, to: $0) })
-        return Menu {
+        return RoutePicker(text: bus == .off ? "Off" : state.routeSideName(bus)) {
             Picker("", selection: binding) {
                 Text("Off").tag(MixBus.off)
                 ForEach(state.routeSideGroups, id: \.title) { group in
@@ -78,11 +78,6 @@ private struct CaptureCell: View {
                     }
                 }
             }
-            .pickerStyle(.inline)
-            .labelsHidden()
-        } label: {
-            RoutePickerLabel(text: bus == .off ? "Off" : state.routeSideName(bus))
         }
-        .routePickerStyle()
     }
 }

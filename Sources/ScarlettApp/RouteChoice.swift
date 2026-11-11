@@ -40,6 +40,17 @@ enum RouteChoice: Hashable, Identifiable {
         if !left.isMix, left.stereoRightPartner == right { return .sourcePair(left) }
         return .custom(left: left, right: right)
     }
+
+    /// An icon for whether the choice carries one channel or two: a dot for a
+    /// mono mix, two dots for a stereo mix or a stereo pair of sources.
+    var channelIcon: String? {
+        switch self {
+        case .monoMix: return "circle.fill"
+        case .mixPair, .sourcePair: return "circle.grid.2x1.fill"
+        case .off, .custom: return nil
+        }
+    }
+
 }
 
 /// A run of USB capture channels that carry the same kind of input.

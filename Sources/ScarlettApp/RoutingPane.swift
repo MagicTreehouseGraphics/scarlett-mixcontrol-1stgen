@@ -276,19 +276,24 @@ struct RoutingStrip: View {
         let mixes = options.filter { if case .mixPair = $0 { return true } else if case .monoMix = $0 { return true } else { return false } }
         let sources = options.filter { if case .sourcePair = $0 { return true } else { return false } }
         let binding = Binding(get: { current }, set: { state.userSetRouteChoice($0, for: target) })
-        return Menu {
+        return RoutePicker(text: state.routeChoiceName(current), icon: current.channelIcon) {
             Picker("", selection: binding) {
                 if case .custom = current { Text(state.routeChoiceName(current)).tag(current) }
                 Text("Off").tag(RouteChoice.off)
-                Section("Mixes") { ForEach(mixes) { Text(state.routeChoiceName($0)).tag($0) } }
-                Section("Stereo sources") { ForEach(sources) { Text(state.routeChoiceName($0)).tag($0) } }
+                Section("Mixes") { ForEach(mixes) { choiceRow($0) } }
+                Section("Stereo sources") { ForEach(sources) { choiceRow($0) } }
             }
-            .pickerStyle(.inline)
-            .labelsHidden()
-        } label: {
-            RoutePickerLabel(text: state.routeChoiceName(current))
         }
-        .routePickerStyle()
+    }
+
+    /// A menu row with a dot for mono or two dots for stereo.
+    @ViewBuilder
+    private func choiceRow(_ choice: RouteChoice) -> some View {
+        if let icon = choice.channelIcon {
+            Label(state.routeChoiceName(choice), systemImage: icon).tag(choice)
+        } else {
+            Text(state.routeChoiceName(choice)).tag(choice)
+        }
     }
 
     /// One side on its own.
@@ -303,7 +308,7 @@ struct RoutingStrip: View {
                 .font(.system(size: 9, weight: .semibold, design: .monospaced))
                 .foregroundStyle(Theme.textSecondary)
                 .frame(width: 8)
-            Menu {
+            RoutePicker(text: bus == .off ? "Off" : state.routeSideName(bus)) {
                 Picker("", selection: binding) {
                     Text("Off").tag(MixBus.off)
                     ForEach(state.routeSideGroups, id: \.title) { group in
@@ -312,12 +317,7 @@ struct RoutingStrip: View {
                         }
                     }
                 }
-                .pickerStyle(.inline)
-                .labelsHidden()
-            } label: {
-                RoutePickerLabel(text: bus == .off ? "Off" : state.routeSideName(bus))
             }
-            .routePickerStyle()
         }
     }
 
@@ -338,15 +338,37 @@ struct RoutingStrip: View {
 
 // MARK: - Pieces
 
-/// What a routing picker shows: the name of what's routed.  (The colour of it is
-/// the strip's underline: a menu button only draws text and images.)
-struct RoutePickerLabel: View {
+/// A routing picker: a raised key showing what's routed, opening a menu of
+/// choices.  (The colour of what's routed is the strip's underline.)
+struct RoutePicker<Choices: View>: View {
     let text: String
+    var icon: String?
+    @ViewBuilder let choices: () -> Choices
+    @State private var hovering = false
 
     var body: some View {
-        HStack(spacing: 5) {
+        Menu {
+            choices().pickerStyle(.inline).labelsHidden()
+        } label: {
+            face
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .onHover { hovering = $0 }
+        .cursor(.pointingHand)
+    }
+
+    private var face: some View {
+        let shape = RoundedRectangle(cornerRadius: 5)
+        return HStack(spacing: 5) {
+            if let icon {
+                Image(systemName: icon)
+                    .font(.system(size: 8))
+                    .foregroundStyle(Theme.textSecondary)
+            }
             Text(text)
-                .font(.system(size: 11))
+                .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(Theme.textPrimary)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -355,18 +377,22 @@ struct RoutePickerLabel: View {
                 .font(.system(size: 7, weight: .semibold))
                 .foregroundStyle(Theme.textSecondary)
         }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 4)
-        .background(Theme.panelRaised)
-        .clipShape(RoundedRectangle(cornerRadius: 3))
-    }
-}
-
-extension View {
-    func routePickerStyle() -> some View {
-        menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .frame(maxWidth: .infinity)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .frame(maxWidth: .infinity)
+        .background {
+            shape
+                .fill(LinearGradient(colors: [Color(white: 0.25), Color(white: 0.16)], startPoint: .top, endPoint: .bottom))
+                .overlay {
+                    shape.strokeBorder(
+                        LinearGradient(colors: [Color.white.opacity(0.26), Color.black.opacity(0.55)],
+                                       startPoint: .top, endPoint: .bottom),
+                        lineWidth: 0.75)
+                }
+                .shadow(color: .black.opacity(0.55), radius: 1.5, y: 1)
+        }
+        .brightness(hovering ? 0.06 : 0)
+        .contentShape(shape)
     }
 }
 

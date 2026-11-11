@@ -247,6 +247,34 @@ struct OutputStrip: View {
     /// An icon and colour for the kind of output this pair is (analog look).
     private var kind: OutputKind { OutputKind(label: title) }
 
+    /// What the Routing page currently sends to this output, by name.
+    private var routedName: String {
+        if rightOutput == nil {
+            return leftSource == .off ? "Off" : state.routeSideName(leftSource)
+        }
+        return state.routeChoiceName(state.routeChoice(for: .output(label: title)))
+    }
+
+    /// A small read-only pill with what feeds this output.
+    private var routedPill: some View {
+        let color = state.routeColor(leftSource)
+        return HStack(spacing: 3) {
+            if let color {
+                Circle().fill(color).frame(width: 4, height: 4)
+            }
+            Text(routedName)
+                .font(.system(size: 8, weight: .semibold))
+                .foregroundStyle(leftSource == .off ? Theme.textSecondary.opacity(0.7) : Theme.textSecondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 1.5)
+        .background(Capsule().fill(Color.black.opacity(0.35)))
+        .overlay(Capsule().strokeBorder(Color.white.opacity(0.1), lineWidth: 0.5))
+        .help("Fed by \(routedName). Change it on the Routing page.")
+    }
+
     private var header: some View {
         VStack(spacing: 3) {
             Text(state.outputDisplayName(label: title))
@@ -258,6 +286,7 @@ struct OutputStrip: View {
                 .font(.system(size: 9))
                 .foregroundStyle(Theme.textSecondary)
                 .lineLimit(1)
+            routedPill
             Spacer(minLength: 0)
             Rectangle()
                 .fill(analog ? kind.color.opacity(0.7) : Theme.textSecondary.opacity(0.5))

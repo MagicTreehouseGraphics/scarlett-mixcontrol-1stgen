@@ -288,6 +288,97 @@ struct MasterMuteButton: View {
     }
 }
 
+// MARK: - Mixer footer keys
+
+/// Height shared by the keys along the foot of the mixer's two panels.
+enum FooterKey {
+    static let height: CGFloat = 26
+}
+
+/// The master mute as a wide raised key under the output strips, lit red while
+/// every output is muted.
+@MainActor
+struct MuteAllKey: View {
+    @Bindable var state: MixerState
+
+    var body: some View {
+        let muted = state.masterMuted
+        Button {
+            state.userSetMasterMute(!muted)
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: muted ? "speaker.slash.fill" : "speaker.wave.2")
+                    .font(.system(size: 10, weight: .semibold))
+                Text(muted ? "MUTED" : "MUTE ALL")
+                    .font(.system(size: 10, weight: .bold))
+                    .tracking(0.6)
+            }
+            .foregroundStyle(muted ? Color.white : Theme.textSecondary)
+            .frame(maxWidth: .infinity)
+            .frame(height: FooterKey.height)
+            .analogKey(active: muted, color: Theme.meterHigh, cornerRadius: 4)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(AnalogKeyPressStyle())
+        .help(muted ? "Every output is muted. Click to unmute." : "Mute every output on the interface.")
+    }
+}
+
+/// Writes the interface's settings to its flash memory.  A dot shows when
+/// there are changes it would forget at power-off; with none, the key rests dim.
+@MainActor
+struct SaveToHardwareKey: View {
+    @Bindable var state: MixerState
+
+    var body: some View {
+        let dirty = state.hasUnsavedHardwareChanges
+        FeedbackButton(action: { await state.saveToFlash() }) { phase in
+            HStack(spacing: 5) {
+                switch phase {
+                case .idle:
+                    Image(systemName: "internaldrive").font(.system(size: 10, weight: .semibold))
+                    Text("Save").font(.system(size: 10, weight: .bold)).tracking(0.4)
+                    if dirty { Circle().fill(Theme.muteActive).frame(width: 5, height: 5) }
+                case .done:
+                    Image(systemName: "checkmark").font(.system(size: 10, weight: .bold))
+                    Text("Saved").font(.system(size: 10, weight: .bold)).tracking(0.4)
+                case .failed:
+                    Image(systemName: "xmark").font(.system(size: 10, weight: .bold))
+                    Text("Failed").font(.system(size: 10, weight: .bold)).tracking(0.4)
+                }
+            }
+            .foregroundStyle(phase == .idle ? Theme.textSecondary : Color.white)
+            .frame(width: 78, height: FooterKey.height)
+            .analogKey(active: phase != .idle, color: phase == .done ? Theme.accentInput : Theme.failure, cornerRadius: 4)
+            .opacity(phase == .idle && !dirty ? 0.45 : 1)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(AnalogKeyPressStyle())
+        .disabled(!state.isConnected || !(dirty))
+        .help("Your changes already work on the interface, but it forgets them when it is switched off. Save keeps them in its memory. A blue dot means there is something unsaved.")
+    }
+}
+
+/// Clears the red max-peak marks on every meter.
+@MainActor
+struct ClearPeaksKey: View {
+    @Bindable var state: MixerState
+
+    var body: some View {
+        Button { state.clearMaxPeaks() } label: {
+            Image(systemName: "arrow.counterclockwise")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(Theme.textSecondary)
+                .frame(width: 30, height: FooterKey.height)
+                .analogKey(active: false, color: .clear, cornerRadius: 4)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(AnalogKeyPressStyle())
+        .help("Clear the red peak marks on every meter")
+        .accessibilityLabel("Clear all peak marks")
+    }
+}
+
 // MARK: - Update dot
 
 /// A red dot on a Settings button while a newer release is available — the

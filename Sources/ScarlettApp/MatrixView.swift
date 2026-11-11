@@ -312,7 +312,6 @@ struct MatrixMixerView: View {
         HStack(alignment: .center) {
             Text("Mixer").font(.title3).bold().foregroundStyle(Theme.textPrimary)
             Spacer()
-            toolbar
         }
     }
 
@@ -325,30 +324,6 @@ struct MatrixMixerView: View {
         }
         .frame(height: openTabHeight, alignment: .bottom)
         .animation(.easeInOut(duration: 0.18), value: state.selectedBus)
-    }
-
-    private var toolbar: some View {
-        HStack(spacing: 6) {
-            FeedbackButton(action: { state.clearMaxPeaks(); return true }) { phase in
-                FeedbackPill(phase: phase, icon: "arrow.counterclockwise",
-                             title: "Clear peaks", doneTitle: "Cleared")
-            }
-            .buttonStyle(.pill)
-            .fixedSize()
-            .help("Reset the red max-peak tick on every strip.")
-
-            MasterMuteButton(state: state)
-
-            FeedbackButton(action: { await state.saveToFlash() }) { phase in
-                FeedbackPill(phase: phase, icon: "internaldrive",
-                             title: "Save to hardware", doneTitle: "Saved")
-            }
-            .buttonStyle(.pill)
-            .fixedSize()
-            .disabled(!state.isConnected)
-            .help("Persist current settings to device flash so they survive a power cycle.")
-
-        }
     }
 
     /// The copy options for a bus tab, in its dropdown and right-click menu.  A
@@ -408,18 +383,22 @@ struct MatrixMixerView: View {
                                            bottomTrailingRadius: 6, topTrailingRadius: 6)
         let outline = tabColor(tabKey(state.selectedBus)) ?? Theme.tabOutline
         let analog = AppearanceSettings.shared.look == .analog
-        return HStack(alignment: .top, spacing: 6) {
-            StripScroller(
-                ids: Array(stride(from: visibleChannels.lowerBound, to: visibleChannels.upperBound, by: 2)),
-                size: { min(2, visibleChannels.upperBound - $0) },
-                noun: "channel",
-                blockSpace: "mixBlock", blockHeight: blockHeight, tabRowHeight: openTabHeight
-            ) { left in
-                channelStrips(startingAt: left)
+        return VStack(alignment: .trailing, spacing: 12) {
+            HStack(alignment: .top, spacing: 6) {
+                StripScroller(
+                    ids: Array(stride(from: visibleChannels.lowerBound, to: visibleChannels.upperBound, by: 2)),
+                    size: { min(2, visibleChannels.upperBound - $0) },
+                    noun: "channel",
+                    blockSpace: "mixBlock", blockHeight: blockHeight, tabRowHeight: openTabHeight
+                ) { left in
+                    channelStrips(startingAt: left)
+                }
+                if state.hasPinnedDawReturn {
+                    PinnedDawStrip(state: state)
+                }
             }
-            if state.hasPinnedDawReturn {
-                PinnedDawStrip(state: state)
-            }
+            ClearPeaksKey(state: state)
+                .padding(.trailing, 6)
         }
         .padding(.vertical, 10)
         .padding(.horizontal, 4)

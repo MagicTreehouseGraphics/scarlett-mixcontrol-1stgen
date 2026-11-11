@@ -86,7 +86,7 @@ struct OutputsPanel: View {
                 }
             }
         } label: {
-            Pill(icon: "plus", title: "Add Output")
+            Pill(icon: "checklist", title: "Show Outputs")
         }
         // A `.borderlessButton` menu doesn't draw the label's background; a
         // button-style menu draws the pill as-is.

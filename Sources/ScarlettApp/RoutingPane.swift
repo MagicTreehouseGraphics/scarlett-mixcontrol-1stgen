@@ -71,22 +71,16 @@ struct RoutingPane: View {
         case .outputs:
             return "Pick what feeds each pair of outputs. Link keys choose left and right together; unlink a pair to choose its two sides separately."
         case .capture:
-            return "Pick what your DAW records on each pair of its inputs. Out of the box each one hears its own input, so Analog 1+2 arrives in the DAW as inputs 1+2."
+            return "Pick what your DAW records on each of its inputs. Out of the box each one hears its own input, so Analog 1 arrives in the DAW as input 1."
         }
     }
 
     // MARK: - Targets
 
-    private var targets: [RouteTarget] {
-        switch tab {
-        case .outputs:
-            return state.physicalOutputGroups
-                .filter { group in group.outputs.contains { $0.isLeft } && group.outputs.contains { !$0.isLeft } }
-                .map { .output(label: $0.label) }
-        case .capture:
-            let channels = state.profile.captureChannelCount + state.profile.loopbackChannelCount
-            return (0..<(channels / 2)).map { .capture(pair: $0) }
-        }
+    private var outputTargets: [RouteTarget] {
+        state.physicalOutputGroups
+            .filter { group in group.outputs.contains { $0.isLeft } && group.outputs.contains { !$0.isLeft } }
+            .map { .output(label: $0.label) }
     }
 
     // MARK: - Tabs
@@ -133,19 +127,26 @@ struct RoutingPane: View {
 
     // MARK: - Panel
 
+    @ViewBuilder
     private var panel: some View {
-        let list = targets
-        return StripScroller(
-            ids: Array(list.indices),
-            size: { _ in 1 },
-            noun: tab == .outputs ? "output" : "capture pair",
-            blockSpace: "routeBlock", blockHeight: blockHeight, tabRowHeight: openTabHeight
-        ) { index in
-            RoutingStrip(state: state, target: list[index])
+        switch tab {
+        case .outputs:
+            let list = outputTargets
+            StripScroller(
+                ids: Array(list.indices),
+                size: { _ in 1 },
+                noun: "output",
+                blockSpace: "routeBlock", blockHeight: blockHeight, tabRowHeight: openTabHeight
+            ) { index in
+                RoutingStrip(state: state, target: list[index])
+            }
+            .id(tab)
+            .padding(.vertical, 10)
+            .padding(.horizontal, 4)
+        case .capture:
+            CaptureGrid(state: state)
+                .id(tab)
         }
-        .id(tab)
-        .padding(.vertical, 10)
-        .padding(.horizontal, 4)
     }
 }
 
@@ -217,19 +218,10 @@ struct RoutingStrip: View {
                 .foregroundStyle(Theme.textPrimary)
                 .lineLimit(1)
                 .truncationMode(.tail)
-            HStack(spacing: 4) {
-                Text(subtitle)
-                    .font(.system(size: 9))
-                    .foregroundStyle(Theme.textSecondary)
-                    .lineLimit(1)
-                if !state.isRouteAtFactory(target) {
-                    Circle()
-                        .fill(Theme.muteActive)
-                        .frame(width: 5, height: 5)
-                        .help("Differs from the factory setup (\(state.factoryRouteName(target) ?? "its own input")).")
-                        .accessibilityLabel("Differs from the factory setup")
-                }
-            }
+            Text(subtitle)
+                .font(.system(size: 9))
+                .foregroundStyle(Theme.textSecondary)
+                .lineLimit(1)
             Rectangle()
                 .fill(state.routeColor(for: target) ?? Theme.textSecondary.opacity(0.5))
                 .frame(height: 2)
@@ -348,7 +340,7 @@ struct RoutingStrip: View {
 
 /// What a routing picker shows: the name of what's routed.  (The colour of it is
 /// the strip's underline: a menu button only draws text and images.)
-private struct RoutePickerLabel: View {
+struct RoutePickerLabel: View {
     let text: String
 
     var body: some View {
@@ -370,7 +362,7 @@ private struct RoutePickerLabel: View {
     }
 }
 
-private extension View {
+extension View {
     func routePickerStyle() -> some View {
         menuStyle(.borderlessButton)
             .menuIndicator(.hidden)

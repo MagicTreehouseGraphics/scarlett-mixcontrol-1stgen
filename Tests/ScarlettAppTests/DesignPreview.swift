@@ -51,8 +51,9 @@ final class DesignPreview: XCTestCase {
         routed.setRouteSides(.output(label: groups[4]), left: .daw2, right: .analog1)
         routed.userSetRoutePairLinked(.output(label: groups[5]), linked: false)
         routed.setRouteSides(.output(label: groups[5]), left: .m1, right: .adat3)
-        routed.userSetRouteChoice(.mixPair(0), for: .capture(pair: 0))
-        routed.userSetRouteChoice(.sourcePair(.analog3), for: .capture(pair: 1))
+        routed.resetCaptureRoutesToFactory()
+        routed.userSetCaptureRoute(channel: 1, to: .m1)
+        routed.userSetCaptureRoute(channel: 11, to: .daw3)
         routed.userSetMixAppearance(tab: 2, name: "Laura Mix", colorHex: "#F2C94C")
         try renderWindow(RoutingPane(state: routed), size: CGSize(width: 1500, height: 780),
                          to: dir.appendingPathComponent("routing-outputs.png"))

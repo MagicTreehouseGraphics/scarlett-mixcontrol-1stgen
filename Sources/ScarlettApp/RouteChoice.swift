@@ -42,6 +42,13 @@ enum RouteChoice: Hashable, Identifiable {
     }
 }
 
+/// A run of USB capture channels that carry the same kind of input.
+struct CaptureGroup: Identifiable {
+    let title: String
+    let channels: [Int]
+    var id: Int { channels.first ?? 0 }
+}
+
 /// A pair of outputs or capture channels with the same two-sided routing.
 enum RouteTarget: Hashable {
     /// An output pair, by its label ("Monitor", "Line 3+4", …).
@@ -90,21 +97,39 @@ extension MixerState {
         profile.defaultCaptureSources.indices.contains(channel) ? profile.defaultCaptureSources[channel] : nil
     }
 
-    /// Whether a capture pair still has its factory routing.  Always true for
-    /// outputs, which have no factory routing to compare with.
-    func isRouteAtFactory(_ target: RouteTarget) -> Bool {
-        guard case .capture(let pair) = target, let c = captureChannels(pair) else { return true }
-        return [c.left, c.right].allSatisfy { channel in
-            factoryCaptureSource(channel: channel).map { captureRoutes[channel] == $0 } ?? true
-        }
+    /// Whether a USB capture channel is still on its factory source.
+    func isCaptureChannelAtFactory(_ channel: Int) -> Bool {
+        factoryCaptureSource(channel: channel).map { captureRoutes[channel] == $0 } ?? true
     }
 
-    /// What a capture pair's factory routing is called, such as "Analog 1+2".
-    func factoryRouteName(_ target: RouteTarget) -> String? {
-        guard case .capture(let pair) = target, let c = captureChannels(pair),
-              let left = factoryCaptureSource(channel: c.left),
-              let right = factoryCaptureSource(channel: c.right) else { return nil }
-        return routeChoiceName(RouteChoice.from(left: left, right: right, mixPairLinked: isMixPairLinked))
+    /// What a USB capture channel carries from the factory, such as "Analog 3".
+    func factoryCaptureName(channel: Int) -> String? {
+        factoryCaptureSource(channel: channel).map(routeSideName)
+    }
+
+    /// The USB capture channels in the device's own order, grouped by the kind
+    /// of input they carry from the factory: "Analog 1–8", "S/PDIF 1–2", "ADAT 1–8".
+    var captureChannelGroups: [CaptureGroup] {
+        let count = profile.captureChannelCount + profile.loopbackChannelCount
+        var groups: [(family: String, channels: [Int], numbers: [Int])] = []
+        for channel in 0..<count {
+            let name = factoryCaptureSource(channel: channel).map { routeSideName($0) }
+            let parts = name?.split(separator: " ").map(String.init) ?? []
+            let family = parts.count > 1 ? parts.dropLast().joined(separator: " ")
+                : (channel >= profile.captureChannelCount ? "Loopback" : "Other")
+            let number = parts.last.flatMap(Int.init) ?? (channel + 1)
+            if let last = groups.last, last.family == family {
+                groups[groups.count - 1].channels.append(channel)
+                groups[groups.count - 1].numbers.append(number)
+            } else {
+                groups.append((family, [channel], [number]))
+            }
+        }
+        return groups.map { group in
+            let first = group.numbers.first!, last = group.numbers.last!
+            return CaptureGroup(title: first == last ? "\(group.family) \(first)" : "\(group.family) \(first)–\(last)",
+                                channels: group.channels)
+        }
     }
 
     /// True when any USB capture channel is not on its factory source.

@@ -99,28 +99,28 @@ final class RouteChoiceTests: XCTestCase {
         XCTAssertEqual(s.routeChoice(for: target), .mixPair(0))
     }
 
-    func testCapturePairsStartAtFactoryAndResetToIt() {
+    func testCaptureChannelsStartAtFactoryAndResetToIt() {
         let s = makeState()
         for (channel, source) in s.profile.defaultCaptureSources.enumerated() { s.captureRoutes[channel] = source }
-        let target = RouteTarget.capture(pair: 1)
-        XCTAssertTrue(s.isRouteAtFactory(target))
+        XCTAssertTrue(s.isCaptureChannelAtFactory(3))
         XCTAssertFalse(s.captureDiffersFromFactory)
-        XCTAssertNotNil(s.factoryRouteName(target))
 
-        s.userSetRouteChoice(.mixPair(0), for: target)
-        XCTAssertFalse(s.isRouteAtFactory(target))
-        XCTAssertTrue(s.isRouteAtFactory(.capture(pair: 0)))
+        s.userSetCaptureRoute(channel: 3, to: .m1)
+        XCTAssertFalse(s.isCaptureChannelAtFactory(3))
+        XCTAssertTrue(s.isCaptureChannelAtFactory(2))
         XCTAssertTrue(s.captureDiffersFromFactory)
 
         s.resetCaptureRoutesToFactory()
-        XCTAssertTrue(s.isRouteAtFactory(target))
+        XCTAssertTrue(s.isCaptureChannelAtFactory(3))
         XCTAssertFalse(s.captureDiffersFromFactory)
     }
 
-    func testOutputsHaveNoFactoryMarker() {
+    func testCaptureChannelsAreGroupedByKindOfInput() {
         let s = makeState()
-        XCTAssertTrue(s.isRouteAtFactory(.output(label: label(s, 0))))
-        XCTAssertNil(s.factoryRouteName(.output(label: label(s, 0))))
+        let groups = s.captureChannelGroups
+        XCTAssertEqual(groups.map(\.title), ["Analog 1–8", "S/PDIF 1–2", "ADAT 1–8"])
+        XCTAssertEqual(groups.flatMap(\.channels), Array(0..<18))
+        XCTAssertEqual(s.factoryCaptureName(channel: 8), "S/PDIF 1")
     }
 
     func testAPairThatDoesNotExistIsIgnored() {

@@ -290,7 +290,7 @@ struct RoutingStrip: View {
     @ViewBuilder
     private func choiceRow(_ choice: RouteChoice) -> some View {
         if let badge = choice.channelBadge {
-            Text("\(state.routeChoiceName(choice))  ·  \(badge)").tag(choice)
+            (Text(state.routeChoiceName(choice)) + Text("  \(badge)").font(.system(size: 9)).foregroundColor(.secondary)).tag(choice)
         } else {
             Text(state.routeChoiceName(choice)).tag(choice)
         }
@@ -370,8 +370,13 @@ struct RoutePicker<Choices: View>: View {
             Spacer(minLength: 2)
             if let badge {
                 Text(badge)
-                    .font(.system(size: 8, weight: .semibold, design: .monospaced))
+                    .font(.system(size: 7, weight: .bold))
+                    .tracking(0.3)
                     .foregroundStyle(Theme.textSecondary)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1.5)
+                    .background(Capsule().fill(Color.black.opacity(0.35)))
+                    .overlay(Capsule().strokeBorder(Color.white.opacity(0.1), lineWidth: 0.5))
             }
             Image(systemName: "chevron.up.chevron.down")
                 .font(.system(size: 7, weight: .semibold))

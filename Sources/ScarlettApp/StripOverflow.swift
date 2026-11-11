@@ -24,17 +24,17 @@ final class StripTracker {
     var frames: [Int: CGRect] = [:]
     var viewport: CGFloat = 0
 
-    /// A strip pair counts as out of view as soon as any of it is cut off.
-    func overflow(channelBound: Int) -> StripOverflow {
+    /// A unit counts as out of view as soon as any of it is cut off.  `sizeOf`
+    /// says how many things a unit holds.
+    func overflow(sizeOf: (Int) -> Int) -> StripOverflow {
         guard viewport > 0, !frames.isEmpty else { return StripOverflow() }
-        let channels = { (left: Int) in min(2, channelBound - left) }
         let hiddenLeft = frames.filter { $0.value.minX < -1 }.keys.sorted()
         let hiddenRight = frames.filter { $0.value.maxX > viewport + 1 }.keys.sorted()
         return StripOverflow(
             leftTarget: hiddenLeft.last,
             rightTarget: hiddenRight.first,
-            leftCount: hiddenLeft.reduce(0) { $0 + channels($1) },
-            rightCount: hiddenRight.reduce(0) { $0 + channels($1) })
+            leftCount: hiddenLeft.reduce(0) { $0 + sizeOf($1) },
+            rightCount: hiddenRight.reduce(0) { $0 + sizeOf($1) })
     }
 }
 
@@ -95,6 +95,8 @@ struct EdgeKeyShape {
 /// edge and a soft shadow onto the strips it covers.
 struct EdgeKeyPocket: View {
     let leading: Bool
+    /// The named coordinate space of the plate the key's grey is taken from.
+    let blockSpace: String
     /// Height of the tab row + panel block, and of its tab row, to find the
     /// plate's grey at this height.
     let blockHeight: CGFloat
@@ -103,7 +105,7 @@ struct EdgeKeyPocket: View {
     var body: some View {
         GeometryReader { geo in
             let rect = CGRect(origin: .zero, size: geo.size)
-            let frame = geo.frame(in: .named("mixBlock"))
+            let frame = geo.frame(in: .named(blockSpace))
             let height = max(blockHeight, 1)
             let junction = Double(min(tabRowHeight / height, 0.5))
             let top = MixPlate.face(at: Double(frame.minY / height), junction: junction)

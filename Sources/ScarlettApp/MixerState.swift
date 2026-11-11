@@ -299,6 +299,9 @@ final class MixerState {
     /// The label stays the pair's identity (pins, colours, routing); this is
     /// only what is shown.
     var outputNames: [String: String] = [:]
+    /// Routing strips whose two sides are chosen separately instead of as one
+    /// stereo choice (see `RouteTarget.linkKey`).  Empty = every pair linked.
+    var unlinkedRoutePairs: Set<String> = []
     /// Mute per channel per mix bus (18 × mix count; 6 until a device says otherwise,
     /// like the other matrix arrays).  The two buses of a linked
     /// pair are always set together, so a stereo mix is never half muted.
@@ -548,6 +551,7 @@ final class MixerState {
     private static let mixAppearanceKeyPrefix   = "scarlett.mixAppearance.v1"
     private static let outputColorsKeyPrefix    = "scarlett.outputColors.v1"
     private static let outputNamesKeyPrefix     = "scarlett.outputNames.v1"
+    private static let routeLinksKeyPrefix      = "scarlett.routeLinks.v1"
 
     private func routesKey(for profile: DeviceProfile) -> String {
         "\(Self.routesKeyPrefix).\(profile.productID)"
@@ -575,6 +579,12 @@ final class MixerState {
     }
     private func loadedPresetKey(for profile: DeviceProfile) -> String {
         "\(Self.loadedPresetKeyPrefix).\(profile.productID)"
+    }
+    private func routeLinksKey(for profile: DeviceProfile) -> String {
+        "\(Self.routeLinksKeyPrefix).\(profile.productID)"
+    }
+    func saveRouteLinks() {
+        UserDefaults.standard.set(Array(unlinkedRoutePairs).sorted(), forKey: routeLinksKey(for: profile))
     }
     private func outputNamesKey(for profile: DeviceProfile) -> String {
         "\(Self.outputNamesKeyPrefix).\(profile.productID)"
@@ -625,6 +635,7 @@ final class MixerState {
         mixColors = Array(repeating: "", count: profile.mixBusCount)
         outputColors = [:]
         outputNames = [:]
+        unlinkedRoutePairs = []
         mixerSources = Array(repeating: .off, count: profile.matrixInputCount)
         mixerLevels = Array(
             repeating: Array(repeating: 0, count: profile.stereoPairCount),
@@ -806,6 +817,10 @@ final class MixerState {
                 let valid = MixAppearance.validColor(hex)
                 return valid.isEmpty ? nil : valid
             }.filter { labels.contains($0.key) }
+        }
+
+        if let saved = defaults.stringArray(forKey: routeLinksKey(for: profile)) {
+            unlinkedRoutePairs = Set(saved)
         }
 
         if let saved = defaults.dictionary(forKey: outputNamesKey(for: profile)) as? [String: String] {

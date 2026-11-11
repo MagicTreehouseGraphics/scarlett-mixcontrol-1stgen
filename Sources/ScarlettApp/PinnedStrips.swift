@@ -245,14 +245,7 @@ struct OutputStrip: View {
     }
 
     /// An icon and colour for the kind of output this pair is (analog look).
-    private var kind: (icon: String, color: Color) {
-        let name = title.lowercased()
-        if name.contains("monitor") { return ("display", Theme.textPrimary) }
-        if name.contains("phones") { return ("headphones", Theme.accentAnalog) }
-        if name.contains("s/pdif") { return ("cable.connector", Theme.soloActive) }
-        if name.contains("adat") { return ("waveform", Theme.accentDigital) }
-        return ("hifispeaker.fill", Theme.accentInput)
-    }
+    private var kind: OutputKind { OutputKind(label: title) }
 
     private var header: some View {
         VStack(spacing: 3) {

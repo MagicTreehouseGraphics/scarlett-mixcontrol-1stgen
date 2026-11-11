@@ -49,3 +49,17 @@ extension SignalSource {
         }
     }
 }
+
+extension MixBus {
+    /// True for the matrix mixes M1…M8.
+    public var isMix: Bool { matrixIndex != nil }
+
+    /// The bus to the right of this one in a stereo pair of sources (DAW 1 →
+    /// DAW 2), when this is the left side of one.  Mixes pair up through
+    /// `stereoPairIndex` instead.
+    public var stereoRightPartner: MixBus? {
+        guard !isMix,
+              let partner = SignalSource(rawValue: rawValue)?.stereoRightPartner else { return nil }
+        return MixBus(rawValue: partner.rawValue)
+    }
+}

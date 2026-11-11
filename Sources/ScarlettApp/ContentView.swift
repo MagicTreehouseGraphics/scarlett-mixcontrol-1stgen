@@ -373,7 +373,11 @@ struct RoutingView: View {
 
     var body: some View {
         ConnectionOverlay(state: state) {
-            routingContent
+            if AppearanceSettings.shared.look == .analog {
+                RoutingPane(state: state)
+            } else {
+                routingContent
+            }
         }
     }
 

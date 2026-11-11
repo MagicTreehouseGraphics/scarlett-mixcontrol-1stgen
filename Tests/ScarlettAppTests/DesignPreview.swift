@@ -41,6 +41,23 @@ final class DesignPreview: XCTestCase {
         try renderWindow(page(state, spare: 140), size: CGSize(width: 1500, height: 780),
                          to: dir.appendingPathComponent("page-second.png"))
         state.selectedBus = state.matrixBuses[0]
+        let routed = sampleState(profile: .scarlett18i20)
+        let groups = routed.physicalOutputGroups.map(\.label)
+        routed.userSetMixPairLinked(3, linked: false)
+        routed.userSetRouteChoice(.mixPair(0), for: .output(label: groups[0]))
+        routed.userSetRouteChoice(.mixPair(1), for: .output(label: groups[1]))
+        routed.userSetRouteChoice(.sourcePair(.analog1), for: .output(label: groups[2]))
+        routed.userSetRouteChoice(.monoMix(.m7), for: .output(label: groups[3]))
+        routed.setRouteSides(.output(label: groups[4]), left: .daw2, right: .analog1)
+        routed.userSetRoutePairLinked(.output(label: groups[5]), linked: false)
+        routed.setRouteSides(.output(label: groups[5]), left: .m1, right: .adat3)
+        routed.userSetRouteChoice(.mixPair(0), for: .capture(pair: 0))
+        routed.userSetRouteChoice(.sourcePair(.analog3), for: .capture(pair: 1))
+        routed.userSetMixAppearance(tab: 2, name: "Laura Mix", colorHex: "#F2C94C")
+        try renderWindow(RoutingPane(state: routed), size: CGSize(width: 1500, height: 780),
+                         to: dir.appendingPathComponent("routing-outputs.png"))
+        try renderWindow(RoutingPane(state: routed, initialTab: .capture), size: CGSize(width: 1500, height: 780),
+                         to: dir.appendingPathComponent("routing-capture.png"))
         try contactSheet(state, to: dir.appendingPathComponent("colours.png"))
         appearance.look = .classic
         try renderWindow(page(state, spare: 140), size: CGSize(width: 1500, height: 780),

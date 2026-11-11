@@ -19,13 +19,6 @@ struct MatrixMixerView: View {
     /// The mix tab (see `MixerState.mixTabKey`) whose name and colour are
     /// being edited in a popover.
     @State private var customizing: Int?
-    /// Channels scrolled out of view at either end of the strips (see `stripScroll`).
-    @State private var overflow = StripOverflow()
-    @State private var stripTracker = StripTracker()
-    /// The counts the edge keys last showed, kept while a key slides away so it
-    /// doesn't flash "0" on the way out.
-    @State private var shownLeft = 0
-    @State private var shownRight = 0
     /// Height of the tab row and panel together, which the edge keys need to
     /// take the panel's grey at their height.
     @State private var blockHeight: CGFloat = 0
@@ -161,7 +154,7 @@ struct MatrixMixerView: View {
                 if analog {
                     // The open tab has no face of its own: it is part of the
                     // plate drawn behind the whole block (`MixPlate`).
-                    if !selected { analogTabFace(selected: false) }
+                    if !selected { AnalogTabFace(selected: false) }
                 } else {
                     FolderTabShape().fill(selected ? Theme.tabPanel : Theme.panelRaised)
                 }
@@ -178,14 +171,7 @@ struct MatrixMixerView: View {
                 // glowing on the open tab, dimmer on the others (where it
                 // only shows for a colour the user chose).
                 if analog, selected || accent != nil {
-                    let color = accent ?? Theme.tabOutline
-                    Capsule()
-                        .fill(color)
-                        .frame(height: 3)
-                        .padding(.horizontal, 6)
-                        .shadow(color: color.opacity(selected ? 0.75 : 0.4), radius: selected ? 4 : 3)
-                        .shadow(color: color.opacity(selected ? 0.3 : 0), radius: selected ? 9 : 0)
-                        .opacity(selected ? 1 : 0.7)
+                    TabGlowLine(color: accent ?? Theme.tabOutline, selected: selected)
                 }
             }
             .overlay {
@@ -224,22 +210,6 @@ struct MatrixMixerView: View {
                     state.userSetMixAppearance(tab: key, name: name, colorHex: hex)
                 }
             }
-    }
-
-    /// The analog look's tab: the open one is cut from the same plate as the
-    /// panel, so the two read as one piece; the others sit lower and darker.
-    private func analogTabFace(selected: Bool) -> some View {
-        FolderTabShape()
-            .fill(LinearGradient(
-                colors: selected ? [Color(white: 0.255), Theme.faceTop] : [Color(white: 0.20), Color(white: 0.165)],
-                startPoint: .top, endPoint: .bottom))
-            .overlay {
-                FolderTabShape(inset: 0.5)
-                    .stroke(LinearGradient(
-                        colors: [Color.white.opacity(selected ? 0.32 : 0.20), Color.white.opacity(0.05)],
-                        startPoint: .top, endPoint: .bottom), lineWidth: 1)
-            }
-            .shadow(color: Color.black.opacity(selected ? 0.35 : 0.5), radius: 3, y: -1)
     }
 
     private func tabLabel(_ bus: MixBus, selected: Bool) -> some View {
@@ -433,124 +403,20 @@ struct MatrixMixerView: View {
 
     /// The panel under the tabs: the channel strips and the DAW return, which
     /// belong to the selected mix.  The output strips beside it belong to all.
-    /// The channel strips, scrolling sideways.  Where channels are out of view,
-    /// that edge fades and carries a key saying how many, which scrolls to
-    /// them, so it's clear there is more to see.  Both go once the end is reached.
-    private var stripScroll: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    ForEach(Array(stride(from: visibleChannels.lowerBound,
-                                         to: visibleChannels.upperBound, by: 2)), id: \.self) { left in
-                        channelStrips(startingAt: left)
-                            .background {
-                                GeometryReader { geo in
-                                    Color.clear.preference(key: StripFramesKey.self,
-                                                           value: [left: geo.frame(in: .named("strips"))])
-                                }
-                            }
-                    }
-                }
-                .padding(.vertical, StripLayout.pinnedOutset)
-                // Room for the cards' shadows, which the scroll view would clip.
-                .padding(.horizontal, 6)
-                .background(SidewaysScrollWheel())
-            }
-            .coordinateSpace(name: "strips")
-            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
-                stripTracker.viewport = width
-                updateOverflow()
-            }
-            .onPreferenceChange(StripFramesKey.self) { frames in
-                stripTracker.frames = frames
-                updateOverflow()
-            }
-            .overlay {
-                // Both keys are always there; the one with nothing to reveal
-                // is slid into the edge, where this clips it.
-                ZStack {
-                    overflowEdge(leading: true, active: overflow.leftTarget != nil,
-                                 count: shownLeft, target: overflow.leftTarget, proxy: proxy)
-                    overflowEdge(leading: false, active: overflow.rightTarget != nil,
-                                 count: shownRight, target: overflow.rightTarget, proxy: proxy)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .padding(.horizontal, -4)
-                .clipped()
-            }
-        }
-    }
-
-    private func updateOverflow() {
-        let new = stripTracker.overflow(channelBound: visibleChannels.upperBound)
-        if new.leftCount > 0, shownLeft != new.leftCount { shownLeft = new.leftCount }
-        if new.rightCount > 0, shownRight != new.rightCount { shownRight = new.rightCount }
-        if new != overflow { overflow = new }
-    }
-
-    /// The edge cue: the strips fade toward the edge, and a pocket cut into the
-    /// panel's side wall holds a recessed key with an arrow and the number of
-    /// channels out of view.  The key pushes out of the wall when there is more
-    /// to see and slides back into it at the end.
-    private func overflowEdge(leading: Bool, active: Bool, count: Int, target: Int?,
-                              proxy: ScrollViewProxy) -> some View {
-        let width: CGFloat = 28
-        // The key slides with a spring; the fade and the pocket's shading come
-        // and go more slowly than the slide, so they never pop.
-        let slide: Animation = active
-            ? .spring(response: 0.5, dampingFraction: 0.7)
-            : .easeIn(duration: 0.3)
-        let soften: Animation = .easeInOut(duration: active ? 0.8 : 0.6)
-        return ZStack(alignment: leading ? .leading : .trailing) {
-            LinearGradient(colors: [Color.black.opacity(0.8), Color.black.opacity(0.35), Color.black.opacity(0)],
-                           startPoint: leading ? .leading : .trailing,
-                           endPoint: leading ? .trailing : .leading)
-                .frame(width: 88)
-                .opacity(active ? 1 : 0)
-                .animation(soften, value: active)
-                .allowsHitTesting(false)
-            Button {
-                guard let target else { return }
-                withAnimation(.easeInOut(duration: 0.32)) {
-                    proxy.scrollTo(target, anchor: leading ? .trailing : .leading)
-                }
-            } label: {
-                Image(systemName: leading ? "chevron.left" : "chevron.right")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(Theme.muteActive)
-                    .shadow(color: Theme.muteActive.opacity(0.8), radius: 4)
-                // The arrow comes in after the key has formed, and goes before
-                // it, so it is never on its own.
-                .opacity(active ? 1 : 0)
-                .animation(soften.delay(active ? 0.3 : 0), value: active)
-                .frame(width: width, height: 64)
-                .background(alignment: leading ? .leading : .trailing) {
-                    // The key is a piece of the panel: it runs back to the
-                    // panel's wall and curves into the margin beside the strips.
-                    EdgeKeyPocket(leading: leading, blockHeight: blockHeight, tabRowHeight: openTabHeight)
-                        .frame(width: width + 4, height: 64 + 10)
-                        .offset(x: leading ? -4 : 4)
-                        .opacity(active ? 1 : 0)
-                        .animation(soften, value: active)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(EdgeKeyPressStyle(leading: leading))
-            .offset(x: active ? 0 : (leading ? -width - 6 : width + 6))
-            .animation(slide, value: active)
-            .allowsHitTesting(active)
-            .help("\(count) more channel\(count == 1 ? "" : "s") \(leading ? "to the left" : "to the right")")
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: leading ? .leading : .trailing)
-    }
-
     private var mixPanel: some View {
         let shape = UnevenRoundedRectangle(topLeadingRadius: 0, bottomLeadingRadius: 6,
                                            bottomTrailingRadius: 6, topTrailingRadius: 6)
         let outline = tabColor(tabKey(state.selectedBus)) ?? Theme.tabOutline
         let analog = AppearanceSettings.shared.look == .analog
         return HStack(alignment: .top, spacing: 6) {
-            stripScroll
+            StripScroller(
+                ids: Array(stride(from: visibleChannels.lowerBound, to: visibleChannels.upperBound, by: 2)),
+                size: { min(2, visibleChannels.upperBound - $0) },
+                noun: "channel",
+                blockSpace: "mixBlock", blockHeight: blockHeight, tabRowHeight: openTabHeight
+            ) { left in
+                channelStrips(startingAt: left)
+            }
             if state.hasPinnedDawReturn {
                 PinnedDawStrip(state: state)
             }

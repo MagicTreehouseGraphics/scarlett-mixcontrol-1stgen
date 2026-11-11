@@ -129,3 +129,41 @@ struct MixPlate: View {
         .allowsHitTesting(false)
     }
 }
+
+/// The analog look's tab: the open one is cut from the same plate as the panel
+/// (it is drawn by `MixPlate`, so only the others use this), and the others sit
+/// lower and darker.
+struct AnalogTabFace: View {
+    let selected: Bool
+
+    var body: some View {
+        FolderTabShape()
+            .fill(LinearGradient(
+                colors: selected ? [Color(white: 0.255), Theme.faceTop] : [Color(white: 0.20), Color(white: 0.165)],
+                startPoint: .top, endPoint: .bottom))
+            .overlay {
+                FolderTabShape(inset: 0.5)
+                    .stroke(LinearGradient(
+                        colors: [Color.white.opacity(selected ? 0.32 : 0.20), Color.white.opacity(0.05)],
+                        startPoint: .top, endPoint: .bottom), lineWidth: 1)
+            }
+            .shadow(color: Color.black.opacity(selected ? 0.35 : 0.5), radius: 3, y: -1)
+    }
+}
+
+/// A tab's colour as a lit line along its top: bright and glowing on the open
+/// tab, dimmer on the others.
+struct TabGlowLine: View {
+    let color: Color
+    let selected: Bool
+
+    var body: some View {
+        Capsule()
+            .fill(color)
+            .frame(height: 3)
+            .padding(.horizontal, 6)
+            .shadow(color: color.opacity(selected ? 0.75 : 0.4), radius: selected ? 4 : 3)
+            .shadow(color: color.opacity(selected ? 0.3 : 0), radius: selected ? 9 : 0)
+            .opacity(selected ? 1 : 0.7)
+    }
+}

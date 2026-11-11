@@ -385,17 +385,7 @@ struct RoutePicker<Choices: View>: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 5)
         .frame(maxWidth: .infinity)
-        .background {
-            shape
-                .fill(LinearGradient(colors: [Color(white: 0.25), Color(white: 0.16)], startPoint: .top, endPoint: .bottom))
-                .overlay {
-                    shape.strokeBorder(
-                        LinearGradient(colors: [Color.white.opacity(0.26), Color.black.opacity(0.55)],
-                                       startPoint: .top, endPoint: .bottom),
-                        lineWidth: 0.75)
-                }
-                .shadow(color: .black.opacity(0.55), radius: 1.5, y: 1)
-        }
+        .tactileKey(active: false, color: .clear, cornerRadius: 5)
         .brightness(hovering ? 0.06 : 0)
         .contentShape(shape)
     }

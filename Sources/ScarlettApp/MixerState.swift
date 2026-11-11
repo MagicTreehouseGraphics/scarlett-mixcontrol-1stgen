@@ -143,14 +143,9 @@ final class MixerState {
     @ObservationIgnored
     private let usbQueue = DispatchQueue(label: "scarlett.usb-writes", qos: .userInitiated)
 
-    private func writeAsync(_ work: @escaping @Sendable () -> Void) {
-        if !restoringProfileState { hasUnsavedHardwareChanges = true }
+    nonisolated private func writeAsync(_ work: @escaping @Sendable () -> Void) {
         usbQueue.async(execute: work)
     }
-
-    /// True once something has been sent to the interface since the last save to
-    /// its flash memory (or since connecting), which a power cycle would lose.
-    private(set) var hasUnsavedHardwareChanges = false
 
     // MARK: - Meters
     var peaks: PeakReading = .empty
@@ -399,7 +394,6 @@ final class MixerState {
             loadPersistedState()
             restoringProfileState = false
             ensurePinnedDawChannels()
-            hasUnsavedHardwareChanges = false
             if !wasConnected {
                 logEvent(.info, "Connection",
                          "Connected to \(dev.profile.displayName) (firmware \(firmware), serial \(serial))")
@@ -2397,7 +2391,6 @@ final class MixerState {
             return false
         }
         logEvent(.info, "Flash", "Settings saved to hardware")
-        hasUnsavedHardwareChanges = false
         return true
     }
 }

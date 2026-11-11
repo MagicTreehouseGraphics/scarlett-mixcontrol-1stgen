@@ -611,6 +611,7 @@ struct DeviceView: View {
                         .disabled(!state.isConnected)
                         Spacer()
                     }
+                    .tactileButtons()
                 }
 
                 EventLogPanel(state: state)

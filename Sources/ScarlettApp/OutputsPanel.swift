@@ -20,10 +20,7 @@ struct OutputsPanel: View {
         VStack(alignment: .leading, spacing: 12) {
             Color.clear.frame(height: headerHeight)
             PinnedMasterStrip(state: state)
-            HStack(spacing: 6) {
-                MuteAllKey(state: state)
-                SaveToHardwareKey(state: state)
-            }
+            MuteAllKey(state: state)
         }
         .frame(minWidth: 210, alignment: .leading)
         .overlay(alignment: .top) { header }

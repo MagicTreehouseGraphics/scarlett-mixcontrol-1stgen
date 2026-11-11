@@ -276,7 +276,7 @@ struct RoutingStrip: View {
         let mixes = options.filter { if case .mixPair = $0 { return true } else if case .monoMix = $0 { return true } else { return false } }
         let sources = options.filter { if case .sourcePair = $0 { return true } else { return false } }
         let binding = Binding(get: { current }, set: { state.userSetRouteChoice($0, for: target) })
-        return RoutePicker(text: state.routeChoiceName(current), icon: current.channelIcon) {
+        return RoutePicker(text: state.routeChoiceName(current), badge: current.channelBadge) {
             Picker("", selection: binding) {
                 if case .custom = current { Text(state.routeChoiceName(current)).tag(current) }
                 Text("Off").tag(RouteChoice.off)
@@ -286,11 +286,11 @@ struct RoutingStrip: View {
         }
     }
 
-    /// A menu row with a dot for mono or two dots for stereo.
+    /// A menu row ending in L+R for stereo or MONO.
     @ViewBuilder
     private func choiceRow(_ choice: RouteChoice) -> some View {
-        if let icon = choice.channelIcon {
-            Label(state.routeChoiceName(choice), systemImage: icon).tag(choice)
+        if let badge = choice.channelBadge {
+            Text("\(state.routeChoiceName(choice))  ·  \(badge)").tag(choice)
         } else {
             Text(state.routeChoiceName(choice)).tag(choice)
         }
@@ -342,7 +342,7 @@ struct RoutingStrip: View {
 /// choices.  (The colour of what's routed is the strip's underline.)
 struct RoutePicker<Choices: View>: View {
     let text: String
-    var icon: String?
+    var badge: String?
     @ViewBuilder let choices: () -> Choices
     @State private var hovering = false
 
@@ -362,17 +362,17 @@ struct RoutePicker<Choices: View>: View {
     private var face: some View {
         let shape = RoundedRectangle(cornerRadius: 5)
         return HStack(spacing: 5) {
-            if let icon {
-                Image(systemName: icon)
-                    .font(.system(size: 8))
-                    .foregroundStyle(Theme.textSecondary)
-            }
             Text(text)
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(Theme.textPrimary)
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer(minLength: 2)
+            if let badge {
+                Text(badge)
+                    .font(.system(size: 8, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(Theme.textSecondary)
+            }
             Image(systemName: "chevron.up.chevron.down")
                 .font(.system(size: 7, weight: .semibold))
                 .foregroundStyle(Theme.textSecondary)
